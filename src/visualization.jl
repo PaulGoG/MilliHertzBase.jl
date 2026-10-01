@@ -3,11 +3,15 @@
 
 """
     figure_mission_trace(days, probabilities, threshold; labels = nothing,
-                         max_points = 5000) -> Figure
+                         max_points = 5000, score_label = "Score",
+                         score_name = "Window score", score_range = nothing) -> Figure
 
-Classifier output against mission time [days] with the decision threshold
-and, when `labels` is given, the labelled spans as shaded bands. Long
-traces are decimated to about `max_points` samples. Requires CairoMakie.
+Window scores against mission time [days] with the decision threshold
+and, when `labels` is given, the labelled spans as shaded bands. The score
+axis is labelled `score_label`, the trace `score_name` in the legend, and
+the axis spans `score_range`, by default the range of the scores and the
+threshold widened by 5 %. Long traces are decimated to about `max_points`
+samples. Requires CairoMakie.
 """
 function figure_mission_trace end
 

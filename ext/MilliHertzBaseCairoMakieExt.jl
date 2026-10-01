@@ -8,7 +8,7 @@ using CairoMakie.Makie: Figure, Axis, with_theme, lines!, hlines!
 using CairoMakie.Makie: linkxaxes!, hidexdecorations!, rowgap!, xlims!, ylims!
 using CairoMakie.Makie: LaTeXStrings
 using StreamingInference: FIGURE_COLORS, figure_size, figure_theme
-using StreamingInference: decimation, top_legend!, label_bands!
+using StreamingInference: decimation, top_legend!, label_bands!, score_limits
 import MilliHertzBase: figure_mission_trace, figure_telemetry_trace
 
 function figure_mission_trace(
@@ -17,6 +17,9 @@ function figure_mission_trace(
     threshold::Real;
     labels::Union{Nothing,AbstractVector{<:Integer}} = nothing,
     max_points::Integer = 5000,
+    score_label::AbstractString = "Score",
+    score_name::AbstractString = "Window score",
+    score_range = nothing,
 )
     n = length(probabilities)
     n == length(days) ||
@@ -25,8 +28,7 @@ function figure_mission_trace(
     idx = decimation(n, max_points)
     return with_theme(figure_theme(; size = figure_size(1))) do
         figure = Figure()
-        axis =
-            Axis(figure[1, 1]; xlabel = "Mission time [days]", ylabel = "MBHB probability")
+        axis = Axis(figure[1, 1]; xlabel = "Mission time [days]", ylabel = score_label)
         labels === nothing || label_bands!(axis, days, labels)
         lines!(
             axis,
@@ -34,7 +36,7 @@ function figure_mission_trace(
             probabilities[idx];
             color = FIGURE_COLORS.data,
             linewidth = 2,
-            label = "Classifier output",
+            label = score_name,
         )
         hlines!(
             axis,
@@ -45,7 +47,7 @@ function figure_mission_trace(
             label = "Threshold $(round(threshold; digits = 3))",
         )
         xlims!(axis, days[1], days[end] == days[1] ? days[1] + 1 : days[end])
-        ylims!(axis, 0, 1)
+        ylims!(axis, score_limits(probabilities, threshold, score_range)...)
         top_legend!(figure, axis; nbanks = 2)
         figure
     end
