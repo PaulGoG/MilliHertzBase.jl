@@ -178,7 +178,7 @@ function detector_response(settings::NamedTuple)
     settings.response == "sky_averaged" && return SkyAveragedResponse()
     ext = Base.get_extension(
         Base.moduleroot(@__MODULE__),
-        :MilliHertzQMLCurvatureDistinguishabilityExt,
+        :MilliHertzBaseCurvatureDistinguishabilityExt,
     )
     ext === nothing && throw(
         ArgumentError(

@@ -1,0 +1,47 @@
+name = "MilliHertzBase"
+uuid = "4a1e2e3e-48c7-4c7a-8dfb-6ff8a58d7de2"
+version = "0.1.0-DEV"
+authors = ["Paul-Adrian Gogîță <gogitapaul@yahoo.ro>"]
+
+[deps]
+CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
+DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
+Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
+DrWatson = "634d3b9d-ee7a-5ddf-bec9-22491ea816e1"
+FFTW = "7a1cc6ca-52ef-59f5-83cd-3a7055c09341"
+HDF5 = "f67ccb44-e63f-5c2f-98bd-6dc0ccc4ba2f"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+StreamingInference = "16c4c904-5ec2-451a-8da3-97d89c4aed49"
+TOML = "fa267f1f-6049-4f14-aa54-33bafae1ed76"
+TimerOutputs = "a759f4b9-e2f1-59dc-863e-4aeb61b1ea8f"
+
+[weakdeps]
+CairoMakie = "13f3f980-e62b-5c42-98c6-ff1f3baf88f0"
+CurvatureDistinguishability = "023135ff-521e-423d-a4c9-75a9bc432dee"
+DeepSpaceTelemetry = "d178d3ae-5836-4a75-9bfd-2e34bfeccb6b"
+
+[extensions]
+MilliHertzBaseCairoMakieExt = "CairoMakie"
+MilliHertzBaseCurvatureDistinguishabilityExt = "CurvatureDistinguishability"
+MilliHertzBaseDeepSpaceTelemetryExt = "DeepSpaceTelemetry"
+
+[sources]
+StreamingInference = {url = "https://github.com/PaulGoG/StreamingInference.jl.git", rev = "2e06d2789f2841ed474d4617944dfcbbb3530e03"}
+
+[compat]
+CSV = "0.10, 1.1"
+CairoMakie = "0.15"
+CurvatureDistinguishability = "1, 2"
+DataFrames = "1"
+Dates = "1"
+DeepSpaceTelemetry = "1, 2"
+DrWatson = "2.19"
+FFTW = "1"
+HDF5 = "0.17"
+LinearAlgebra = "1"
+Random = "1"
+TOML = "1"
+TimerOutputs = "1.2"
+StreamingInference = "0.1"
+julia = "1.13"

@@ -10,8 +10,8 @@ producer.
 """
 module MilliHertzBase
 
-using ..StreamingInference
-using ..StreamingInference: check_band_edges, edge_margin_windows, window_count
+using StreamingInference
+using StreamingInference: check_band_edges, edge_margin_windows, window_count
 using CSV: CSV
 using DataFrames: DataFrames, DataFrame, nrow
 using Dates: Dates

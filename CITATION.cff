@@ -1,0 +1,16 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it using the metadata below."
+type: software
+title: "MilliHertzBase.jl"
+abstract: "Gravitational-wave layer for the analysis of LISA telemetry: noise models, IMRPhenomA waveforms, detector response, LISA Data Challenge products, the generation, pre-processing, labelling and payload-export stages, and the coupling to the DeepSpaceTelemetry producer, implemented in Julia."
+authors:
+  - family-names: "Gogîță"
+    given-names: "Paul-Adrian"
+    email: "gogitapaul@yahoo.ro"
+license: MIT
+repository-code: "https://github.com/PaulGoG/MilliHertzBase.jl"
+keywords:
+  - gravitational waves
+  - LISA
+  - time series
+  - Julia
