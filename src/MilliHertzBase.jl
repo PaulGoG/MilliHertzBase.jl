@@ -10,7 +10,42 @@ producer.
 """
 module MilliHertzBase
 
-using StreamingInference
+using StreamingInference:
+    StreamingInference,
+    TIMER,
+    analysis_band,
+    backup_existing!,
+    cfgget,
+    check_memory,
+    content_digest,
+    contiguous_runs,
+    feature_names,
+    fixed_spans,
+    highpass_record,
+    interpolated_psd,
+    matched_filter_snr,
+    new_run_id,
+    override,
+    parameter_digest,
+    pipeline_paths,
+    place_signal!,
+    product_table,
+    provenance_path,
+    record_memory_estimate_gib,
+    resolvepath,
+    resource_settings,
+    rootrelative,
+    scale_to_snr,
+    section,
+    smooth_psd,
+    span_labels,
+    synthesize_noise,
+    welch_psd,
+    whiten_record,
+    window_features,
+    window_labels,
+    write_csv,
+    write_toml
 using StreamingInference: check_band_edges, edge_margin_windows, window_count
 using CSV: CSV
 using DataFrames: DataFrames, DataFrame, nrow
