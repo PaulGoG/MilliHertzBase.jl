@@ -289,7 +289,7 @@ run: the exported scenario geometry (`segment_duration_sec`, `batch_size`,
 `context_windows`, `psd_sidecar`, `psd_mode`, `psd_trailing_days`,
 `psd_refresh_days`, `psd_segment_length`, `psd_edge_periods`, `poll_interval_sec`,
 `producer_compat`, `processing_latency_hours`, `alert_persistence`,
-`alert_crediting`, `events_csv`). `phase_span` of `[training]` is in units of ``\\pi``.
+`alert_crediting`, `events_csv`).
 """
 function telemetry_settings(config::AbstractDict)
     t = section(config, "telemetry")
