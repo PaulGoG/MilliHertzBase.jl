@@ -40,7 +40,7 @@ Sample indices of the coalescence times of `catalog` (column
 sampled at `fs` [Hz], clipped to `1:n`.
 """
 function merger_indices_from_catalog(catalog::DataFrame, t0::Real, fs::Real, n::Integer)
-    "CoalescenceTime" in DataFrames.names(catalog) ||
+    "CoalescenceTime" in names(catalog) ||
         throw(ArgumentError("the catalog lacks the column CoalescenceTime."))
     return [clamp(round(Int, (tc - t0) * fs) + 1, 1, n) for tc in catalog.CoalescenceTime]
 end
@@ -251,7 +251,7 @@ function label_truth_stream(
         )
         if catalog !== nothing
             for c in ("CoalescenceTime", "Mass1", "Mass2", "Redshift", "Distance")
-                c in DataFrames.names(catalog) && (events[!, c] = catalog[!, c])
+                c in names(catalog) && (events[!, c] = catalog[!, c])
             end
         end
         if settings.label_span == "fixed"

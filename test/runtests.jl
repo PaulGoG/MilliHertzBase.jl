@@ -30,6 +30,35 @@ end
 @testset "Static QA (ExplicitImports)" begin
     @test ExplicitImports.check_no_stale_explicit_imports(MilliHertzBase) === nothing
     @test ExplicitImports.check_no_implicit_imports(MilliHertzBase) === nothing
+    # The figure extension reaches `latexstring` of LaTeXStrings through
+    # Makie, the only route open to an extension of this package
+    @test ExplicitImports.check_all_explicit_imports_via_owners(
+        MilliHertzBase;
+        ignore = (:latexstring,),
+    ) === nothing
+    @test ExplicitImports.check_all_explicit_imports_are_public(
+        MilliHertzBase;
+        ignore = (:latexstring,),
+    ) === nothing
+    @test ExplicitImports.check_all_qualified_accesses_via_owners(MilliHertzBase) ===
+          nothing
+    # `CSV.read`, the HDF5 object types and the readers of the producer's
+    # file contract are the documented interfaces of those packages, which
+    # declare no public names beyond their exports
+    @test ExplicitImports.check_all_qualified_accesses_are_public(
+        MilliHertzBase;
+        ignore = (
+            :read,
+            :File,
+            :Group,
+            :Dataset,
+            :filename,
+            :load_run_config,
+            :load_segment,
+            :read_batch_metadata,
+        ),
+    ) === nothing
+    @test ExplicitImports.check_no_self_qualified_accesses(MilliHertzBase) === nothing
 end
 
 @testset "Static QA (JET)" begin

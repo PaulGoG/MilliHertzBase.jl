@@ -15,6 +15,7 @@ follow [Semantic Versioning](https://semver.org/).
   PSDs, the generation, pre-processing, labelling and payload-export
   stages, and the DeepSpaceTelemetry, CurvatureDistinguishability and
   CairoMakie extensions. It depends on StreamingInference.jl.
+- The constants `L_ARM`, `C_LIGHT` and `F_STAR` are public names.
 
 ### Changed (relative to the layer inside MilliHertzQML.jl)
 - `figure_mission_trace` takes `score_label`, `score_name` and

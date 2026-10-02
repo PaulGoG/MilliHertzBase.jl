@@ -6,7 +6,7 @@ module MilliHertzBaseCairoMakieExt
 
 using CairoMakie.Makie: Figure, Axis, with_theme, lines!, hlines!
 using CairoMakie.Makie: linkxaxes!, hidexdecorations!, rowgap!, xlims!, ylims!
-using CairoMakie.Makie: LaTeXStrings
+using CairoMakie.Makie: latexstring
 using StreamingInference: FIGURE_COLORS, figure_size, figure_theme
 using StreamingInference: decimation, top_legend!, label_bands!, score_limits
 import MilliHertzBase: figure_mission_trace, figure_telemetry_trace
@@ -80,7 +80,7 @@ function figure_telemetry_trace(
         ax_strain = Axis(
             figure[1, 1];
             ylabel = exponent == 0 ? "Strain" :
-                     LaTeXStrings.latexstring("\\mathrm{Strain}\\ [10^{$exponent}]"),
+                     latexstring("\\mathrm{Strain}\\ [10^{$exponent}]"),
         )
         label_bands!(ax_strain, t_days, labels)
         lines!(

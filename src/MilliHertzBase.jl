@@ -71,6 +71,7 @@ export label_truth_stream, channel_catalog, whitening_psd, figure_mission_trace
 export figure_telemetry_trace, whitening_psd_from_sidecar, open_telemetry_run
 export export_telemetry_payload, samples_per_batch, source_frame, project_spectrum
 export project_series, catalog_events
+public L_ARM, C_LIGHT, F_STAR
 
 include("config.jl")
 include("noise.jl")

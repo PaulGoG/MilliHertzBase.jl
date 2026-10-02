@@ -254,12 +254,12 @@ function preprocess_record(
                         "$(nrow(label_table)) labels for $n_points telemetry samples.",
                     ),
                 )
-                "Label" in DataFrames.names(label_table) ||
+                "Label" in names(label_table) ||
                     throw(ArgumentError("$label_path lacks the column Label."))
                 raw_labels = Int.(label_table[:, :Label])
                 raw_snrs =
-                    "SNR" in DataFrames.names(label_table) ?
-                    Float32.(label_table[:, :SNR]) : zeros(Float32, n_points)
+                    "SNR" in names(label_table) ? Float32.(label_table[:, :SNR]) :
+                    zeros(Float32, n_points)
             end
 
             features = window_features(
@@ -272,7 +272,7 @@ function preprocess_record(
                 band_edges = settings.band_edges_hz,
                 feature_set = settings.feature_set,
             )
-            names = feature_names(
+            column_names = feature_names(
                 settings.feature_set;
                 n_bands = length(settings.band_edges_hz) - 1,
             )
@@ -296,7 +296,7 @@ function preprocess_record(
                 @info "edge margin" edge_margin = settings.edge_margin dropped_each_end =
                     margin first_window = first(kept) n_windows
 
-            write_csv(features_path, DataFrame(features[kept, :], names))
+            write_csv(features_path, DataFrame(features[kept, :], column_names))
             psd_table !== nothing && write_csv(psd_path, psd_table)
             write_toml(
                 sidecar_path,
@@ -319,7 +319,7 @@ function preprocess_record(
                         "step_size" => settings.step_size,
                         "sample_rate" => fs,
                         "feature_set" => String(settings.feature_set),
-                        "feature_names" => String.(names),
+                        "feature_names" => String.(column_names),
                         "psd" => settings.psd,
                         analytic_psd_parameters(settings)...,
                         "psd_description" => psd_description,

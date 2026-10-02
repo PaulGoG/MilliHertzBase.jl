@@ -46,7 +46,7 @@ columns are present and is `nothing` otherwise. `ArgumentError` for a table
 of neither schema.
 """
 function catalog_events(table::DataFrame)
-    cols = DataFrames.names(table)
+    cols = names(table)
     ids, times = if "event_id" in cols && "t_c_sec" in cols
         table.event_id, table.t_c_sec
     elseif "event" in cols && "merger_time_s" in cols
