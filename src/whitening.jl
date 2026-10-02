@@ -32,7 +32,8 @@ function whitening_psd_from_sidecar(sidecar_path::AbstractString)
         sidecar_channel_psd(sidecar_path, features, recorded, c, length(channels)) for
         c in channels
     ]
-    return length(channels) == 1 ? only(psds) : psds
+    # `psd = "none"` means no whitening, for one channel or several
+    return length(channels) == 1 ? only(psds) : all(isnothing, psds) ? nothing : psds
 end
 
 # The whitening PSD of one channel of the product described by `features`

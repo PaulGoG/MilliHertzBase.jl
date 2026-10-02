@@ -628,6 +628,13 @@ end
         @test rebuilt[2](2e-3) != rebuilt[1](2e-3)
         @test rebuilt[2](2e-3) == interpolated_psd(table_e.frequency_hz, table_e.psd)(2e-3)
 
+        # No whitening is no PSD, for two channels as for one
+        unwhitened = config("AE")
+        unwhitened["preprocessing"]["psd"] = "none"
+        unwhitened["preprocessing"]["output_prefix"] = "modes_raw"
+        @test whitening_psd_from_sidecar(preprocess_record(unwhitened).sidecar_path) ===
+              nothing
+
         # The record a multichannel replay is served from, in single precision
         record_a, rate = channel_record(h5)
         @test rate == fs && record_a == Float32.(A)
