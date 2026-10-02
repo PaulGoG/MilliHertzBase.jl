@@ -560,7 +560,7 @@ end
             psd, _, table = whitening_psd(settings, y, fs; channel = channel)
             return whiten_record(y, fs; psd = psd), table
         end
-        features(record) = window_features(
+        features(record, combination = :mean) = window_features(
             record,
             fs;
             window_size = 1000,
@@ -569,6 +569,7 @@ end
             high_band = settings.high_band_hz,
             band_edges = settings.band_edges_hz,
             feature_set = :bands,
+            combination = combination,
         )[
             21:(end-20),
             :,
@@ -586,11 +587,13 @@ end
         @test names(CSV.read(single.psd_path, DataFrame)) == ["frequency_hz", "psd"]
 
         # Mode AE: each channel whitened by its own PSD, the features of the
-        # channel-averaged periodogram, as many as in the mode A
+        # two combined into as many as the mode A has — by default the value
+        # of each farthest towards a signal
         pair = preprocess_record(config("AE"))
         @test basename(pair.features_path) == "modes_ae_features.csv"
         table = Matrix{Float32}(CSV.read(pair.features_path, DataFrame))
-        @test table == features(hcat(white_a, white_e))
+        @test table == features(hcat(white_a, white_e), :max)
+        @test table[:, 1:3] == max.(features(white_a), features(white_e))[:, 1:3]
         @test size(table) == size(features(white_a)) && table != features(white_a)
         sidecar = TOML.parsefile(pair.sidecar_path)
         @test sidecar["product"]["channels"] == sidecar["features"]["channels"] == "AE"
@@ -601,7 +604,23 @@ end
         psds = CSV.read(pair.psd_path, DataFrame)
         @test names(psds) == ["frequency_hz", "psd_A", "psd_E"]
         @test psds.psd_A == table_a.psd && psds.psd_E == table_e.psd
+        @test sidecar["features"]["channel_combination"] == "max"
+        @test !haskey(sidecar_a["features"], "channel_combination")
         @test preprocess_record(config("AE")).skipped
+        # The averaged periodogram on request: another product
+        averaged = config("AE")
+        averaged["preprocessing"]["channel_combination"] = "mean"
+        averaged["preprocessing"]["output_prefix"] = "modes_mean"
+        mean_product = preprocess_record(averaged)
+        @test Matrix{Float32}(CSV.read(mean_product.features_path, DataFrame)) ==
+              features(hcat(white_a, white_e))
+        @test TOML.parsefile(mean_product.sidecar_path)["features"]["parameter_hash"] !=
+              sidecar["features"]["parameter_hash"]
+        @test_throws ArgumentError preprocessing_settings(
+            Dict{String,Any}(
+                "preprocessing" => Dict{String,Any}("channel_combination" => "sum"),
+            ),
+        )
         # A streamed replay rebuilds the whitening PSD of the A channel only
         @test_throws ArgumentError whitening_psd_from_sidecar(pair.sidecar_path)
         @test whitening_psd_from_sidecar(single.sidecar_path)(2e-3) > 0

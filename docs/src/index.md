@@ -28,9 +28,14 @@ sidecar (`[product] channels`).
 - `"A"`, the default and the mode of every product made before the modes
   existed: the single channel, under the product names used so far.
 - `"AE"`: [`preprocess_record`](@ref) whitens A and E each by its own PSD
-  and computes the features of a window from the average of the two
-  periodograms, so their number is that of the A mode; the product stems
-  gain `_ae`. [`label_truth_stream`](@ref) adds the onset of a detector
+  and combines the features of the two channels into as many as the A mode
+  has; the product stems gain `_ae`. `[preprocessing] channel_combination`
+  selects the combination: `"max"` (default) keeps of every feature the
+  value farthest towards a signal — the larger band power and spread, the
+  smaller entropy — so that a source one channel sees is not diluted by the
+  other; `"mean"` takes the features of the averaged periodogram, the excess
+  power of the network, which is the better statistic only for a source
+  split equally between the channels. [`label_truth_stream`](@ref) adds the onset of a detector
   that reads both channels, from the network SNR
   ``\\rho_{AE}^2 = \\rho_A^2 + \\rho_E^2`` (orthogonal noise, Prince et al.
   2002, doi:10.1103/PhysRevD.66.122002), as `signal_start_index_ae`.

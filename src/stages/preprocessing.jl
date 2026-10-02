@@ -58,8 +58,9 @@ end
 
 Every parameter that determines the pre-processed product: the content
 digest of the source file ([`content_digest`](@ref)) and its TDI group, the
-channel mode when it is not `"A"` (so that the products made before the
-modes existed keep their digest), the window geometry, the whitening mode with the parameters of that mode, the
+channel mode and the combination of the channels when the mode is not
+`"A"` (so that the products made before the modes existed keep their
+digest), the window geometry, the whitening mode with the parameters of that mode, the
 analysis bands, the record high-pass, the feature set, and — when
 `label_path` is non-empty — the content digest of the label file. Inputs
 are identified by content, not by path or modification time, so a moved or
@@ -93,7 +94,10 @@ function preprocessing_parameters(
         parameters["psd_smoothing_dex"] = settings.psd_smoothing_dex
     end
     isempty(label_path) || (parameters["label_file_sha256"] = content_digest(label_path))
-    channels == "A" || (parameters["channels"] = String(channels))
+    if channels != "A"
+        parameters["channels"] = String(channels)
+        parameters["channel_combination"] = String(settings.channel_combination)
+    end
     return parameters
 end
 
@@ -120,8 +124,11 @@ Pre-processing stage: the TDI product `h5_file` (group `tdi_group`) is read
 and E. Each channel is high-passed below the analysis bands
 ([`highpass_record`](@ref)) and whitened by its own PSD of the configured
 kind ([`whitening_psd`](@ref), [`whiten_record`](@ref)); the record is cut
-into sliding windows whose features ([`window_features`](@ref)) are those
-of the channel-averaged periodogram, so their number is that of the A mode.
+into sliding windows whose features ([`window_features`](@ref)) combine
+the channels as `channel_combination` says — by default `"max"`, of every
+feature the value farthest towards a signal among the channels; `"mean"`,
+the features of the channel-averaged periodogram — so their number is that
+of the A mode.
 The mode `"AE"` appends `_ae` to `output_prefix`; the mode `"AET"` is
 refused until the features of the T channel, which carries no
 gravitational-wave signal below about 10 mHz and serves as a veto, exist.
@@ -317,6 +324,7 @@ function preprocess_record(
                 high_band = settings.high_band_hz,
                 band_edges = settings.band_edges_hz,
                 feature_set = settings.feature_set,
+                combination = settings.channel_combination,
             )
             column_names = feature_names(
                 settings.feature_set;
@@ -362,6 +370,13 @@ function preprocess_record(
                         "source" => provenance_path(h5_path),
                         "tdi_group" => group,
                         "channels" => mode,
+                        (
+                            length(channels) > 1 ?
+                            (
+                                "channel_combination" =>
+                                    String(settings.channel_combination),
+                            ) : ()
+                        )...,
                         "window_size" => settings.window_size,
                         "step_size" => settings.step_size,
                         "sample_rate" => fs,

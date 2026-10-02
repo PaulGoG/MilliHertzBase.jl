@@ -235,6 +235,15 @@ function preprocessing_settings(config::AbstractDict)
         band_edges_hz = check_band_edges(
             cfgget(p, "band_edges_hz", [1e-3, 5e-3, 1e-1]; type = AbstractVector),
         ),
+        channel_combination = Symbol(
+            cfgget(
+                p,
+                "channel_combination",
+                "max";
+                type = String,
+                choices = ("mean", "max"),
+            ),
+        ),
         highpass_cutoff_hz = cfgget(
             p,
             "highpass_cutoff_hz",

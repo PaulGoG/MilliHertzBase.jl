@@ -19,8 +19,11 @@ follow [Semantic Versioning](https://semver.org/).
 - Channel modes, `[tdi] channels = "A" | "AE" | "AET"` (`tdi_settings`,
   `channel_names`, `channel_suffix`), recorded in every product. In the
   mode `"AE"` the pre-processing stage whitens A and E each by its own PSD
-  and writes the features of the channel-averaged periodogram under a stem
-  ending in `_ae`, with one PSD column per channel; the labelling stage
+  and writes the combined features of the two channels under a stem ending
+  in `_ae`, with one PSD column per channel (`[preprocessing]
+  channel_combination`: `"max"`, the default, the value of every feature
+  farthest towards a signal among the channels; `"mean"`, the features of
+  the channel-averaged periodogram); the labelling stage
   adds the onset of the A and E network (`signal_start_index_ae`,
   `label_peak_snr_ae`) from the root of the summed squared window SNRs.
   `"AET"` is accepted by the labelling stage, which sets the three-channel
