@@ -15,7 +15,7 @@ DeepSpaceTelemetry producer.
 | LDC products | `read_tdi`, `tdi_to_aet`, `read_catalog`, `catalog_events`, `whitening_psd`, `whitening_psd_from_sidecar` |
 | Labels | `windowed_snr`, `snr_peaks`, `detectable_span`, `detectable_spans`, `signal_onsets` |
 | Stages | `generate_telemetry`, `preprocess_record`, `label_truth_stream`, `export_telemetry_payload`, each driven by a TOML configuration (`generation_settings`, `preprocessing_settings`, `ldc_settings`, `telemetry_settings`, `tdi_settings`) |
-| Channel modes | `[tdi] channels = "A" \| "AE" \| "AET"` (`tdi_settings`, `channel_names`, `channel_suffix`), recorded in every product |
+| Channel modes | `[tdi] channels = "A" \| "AE" \| "AET"` (`tdi_settings`, `channel_names`, `channel_suffix`), recorded in every product; `channel_record`, `mode_events` for the replay of several channels |
 | Extensions | DeepSpaceTelemetry (`open_telemetry_run`: a producer run directory as a StreamingInference run), CurvatureDistinguishability (constellation response), CairoMakie (`figure_mission_trace`, `figure_telemetry_trace`) |
 
 ## Channel modes
@@ -47,9 +47,16 @@ sidecar (`[product] channels`).
   the labelling stage sets the three-channel onset to the AE onset and
   records that it did.
 
-A streamed replay still reads the A channel only: the payload export and
-the whitening PSD rebuilt from a sidecar ([`whitening_psd_from_sidecar`](@ref))
-refuse a multichannel product.
+The telemetry producer carries one payload column, the A channel
+([`export_telemetry_payload`](@ref)). A streamed replay of several channels
+takes the delivery of such a mission and serves the channels of every
+delivered batch from the TDI record itself ([`channel_record`](@ref) through
+StreamingInference's `ScheduledRecordRun`, which refuses a record whose A
+channel is not the payload the mission carried): the delivery of a batch is
+taken to be common to its channels, and the link of the mission was sized
+for one. [`whitening_psd_from_sidecar`](@ref) returns one PSD per channel
+for a multichannel product, and [`mode_events`](@ref) the event table with
+the onset of the channel set a detector reads.
 
 ## Example
 

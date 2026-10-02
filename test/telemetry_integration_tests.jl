@@ -10,6 +10,12 @@ StreamingInference.window_score(::RMSScorer, window::AbstractVector{<:Real}, ::R
     Float32(sqrt(sum(abs2, window) / length(window)))
 StreamingInference.score_bounds(::RMSScorer) = (0.0, Inf)
 
+# The RMS of the first channel of a multichannel window.
+struct FirstChannelRMS <: AbstractWindowScorer end
+StreamingInference.window_score(::FirstChannelRMS, window::AbstractMatrix{<:Real}, ::Real) =
+    Float32(sqrt(sum(abs2, view(window, :, 1)) / size(window, 1)))
+StreamingInference.score_bounds(::FirstChannelRMS) = (0.0, Inf)
+
 @testset "Telemetry coupling (DeepSpaceTelemetry run)" begin
     TelemetryCore = DeepSpaceTelemetry.TelemetryCore
     Supervisor = DeepSpaceTelemetry.Supervisor
@@ -122,6 +128,30 @@ StreamingInference.score_bounds(::RMSScorer) = (0.0, Inf)
             atol = 1e-6,
         )
         @test replay_run(run, detector).score == windows.score
+
+        # The delivery of this single-channel mission applied to a record of
+        # two channels whose first is the payload it carried: the replay of
+        # the pair, scored on its first channel, is the replay of the mission
+        second =
+            synthesize_noise(StableRNG(42), n_rows, fs; f_min = 1e-5, psd = lisa_noise_psd)
+        scheduled = ScheduledRecordRun(run, hcat(payload, second))
+        @test read_batch(scheduled, first_batch.name) ==
+              Float32.(hcat(payload, second)[first_batch.rows, :])
+        pair_detector = StreamingDetector(
+            FirstChannelRMS(),
+            1.0;
+            sample_rate = fs,
+            window_size = 1000,
+            step_size = 100,
+            psd = (lisa_noise_psd, lisa_noise_psd),
+            context_windows = 2,
+        )
+        @test replay_run(scheduled, pair_detector).score == windows.score
+        # A record that is not the payload of the mission is refused
+        @test_throws ArgumentError read_batch(
+            ScheduledRecordRun(run, hcat(second, payload)),
+            first_batch.name,
+        )
         events_table = DataFrame(
             event = [1],
             merger_time_s = [9500 / fs],

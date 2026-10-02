@@ -3,10 +3,11 @@
 # in a feature sidecar.
 
 """
-    whitening_psd_from_sidecar(sidecar_path) -> Union{Nothing, Function}
+    whitening_psd_from_sidecar(sidecar_path) -> Union{Nothing, Function, Vector}
 
 The whitening PSD recorded in a feature sidecar written by the
-pre-processor: the Robson–Cornish–Liu model (`"model"`), that model times
+pre-processor — for a product of several channels a vector with the PSD of
+each, in the order of [`channel_names`](@ref): the Robson–Cornish–Liu model (`"model"`), that model times
 the sky-averaged response (`"channel"`), the LDC analytic model (`"ldc"`),
 the persisted Welch table (`<stem>_psd.csv` beside the features), or
 `nothing` for `psd = "none"`. The kind and the parameters of an analytic
@@ -26,13 +27,16 @@ function whitening_psd_from_sidecar(sidecar_path::AbstractString)
             ),
         )
     recorded("psd")
-    channels = cfgget(features, "channels", "A"; type = String)
-    channels == "A" || throw(
-        ArgumentError(
-            "the sidecar $sidecar_path describes a product of the channels $channels; " *
-            "the whitening PSD of a streamed replay is rebuilt for the A channel only.",
-        ),
-    )
+    channels = channel_names(cfgget(features, "channels", "A"; type = String))
+    psds = [
+        sidecar_channel_psd(sidecar_path, features, recorded, c, length(channels)) for
+        c in channels
+    ]
+    return length(channels) == 1 ? only(psds) : psds
+end
+
+# The whitening PSD of one channel of the product described by `features`
+function sidecar_channel_psd(sidecar_path, features, recorded, channel::Symbol, n_channels)
     mode = cfgget(features, "psd", "model"; type = String)
     if mode == "model" || mode == "channel"
         recorded("observation_years")
@@ -46,7 +50,7 @@ function whitening_psd_from_sidecar(sidecar_path::AbstractString)
         years = cfgget(features, "ldc_observation_years", 0.0; type = Float64)
         return f -> ldc_tdi_psd(
             f;
-            channel = :A,
+            channel = channel,
             model = model,
             tdi2 = tdi2,
             observation_years = years,
@@ -58,9 +62,13 @@ function whitening_psd_from_sidecar(sidecar_path::AbstractString)
             ArgumentError("Welch PSD table not found beside the sidecar: $table_path"),
         )
         table = CSV.read(table_path, DataFrame)
+        # One column `psd` for a single channel, `psd_<channel>` for several
+        column = n_channels == 1 ? "psd" : "psd_$channel"
+        column in names(table) ||
+            throw(ArgumentError("the PSD table $table_path lacks the column $column."))
         return interpolated_psd(
             Vector{Float64}(table.frequency_hz),
-            Vector{Float64}(table.psd),
+            Vector{Float64}(table[!, column]),
         )
     elseif mode == "none"
         return nothing

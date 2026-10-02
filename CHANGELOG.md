@@ -30,7 +30,12 @@ follow [Semantic Versioning](https://semver.org/).
   onset to the AE onset and says so, and refused by the pre-processing
   stage until the features of the T channel exist. `whitening_psd` takes
   the `channel` and refuses an analytic PSD for T. The mode `"A"` leaves
-  every product as it was.
+  every product as it was. For the streamed replay of several channels:
+  `channel_record` (the channels of a TDI product in single precision, the
+  content a `ScheduledRecordRun` serves along the delivery of a mission that
+  carried its A channel), `whitening_psd_from_sidecar` returning one PSD
+  per channel of a multichannel product, and `mode_events` (the event table
+  with the onset of a channel set).
 
 ### Changed (relative to the layer inside MilliHertzQML.jl)
 - `figure_mission_trace` takes `score_label`, `score_name` and

@@ -621,9 +621,19 @@ end
                 "preprocessing" => Dict{String,Any}("channel_combination" => "sum"),
             ),
         )
-        # A streamed replay rebuilds the whitening PSD of the A channel only
-        @test_throws ArgumentError whitening_psd_from_sidecar(pair.sidecar_path)
-        @test whitening_psd_from_sidecar(single.sidecar_path)(2e-3) > 0
+        # A streamed replay rebuilds the whitening PSD of every channel
+        rebuilt = whitening_psd_from_sidecar(pair.sidecar_path)
+        @test length(rebuilt) == 2
+        @test rebuilt[1](2e-3) == whitening_psd_from_sidecar(single.sidecar_path)(2e-3)
+        @test rebuilt[2](2e-3) != rebuilt[1](2e-3)
+        @test rebuilt[2](2e-3) == interpolated_psd(table_e.frequency_hz, table_e.psd)(2e-3)
+
+        # The record a multichannel replay is served from, in single precision
+        record_a, rate = channel_record(h5)
+        @test rate == fs && record_a == Float32.(A)
+        record_ae, _ = channel_record(h5; channels = "AE")
+        @test record_ae == hcat(Float32.(A), Float32.(E))
+        @test size(channel_record(h5; channels = "AET")[1]) == (n, 3)
 
         # T: no features yet, and a measured PSD only
         @test_throws ArgumentError preprocess_record(config("AET"))
@@ -636,6 +646,20 @@ end
         @test whitening_psd(settings, T, fs; channel = :T)[1](2e-3) > 0
         @test_throws ArgumentError whitening_psd(settings, T, fs; channel = :X)
     end
+end
+
+@testset "Event tables by channel mode" begin
+    events = DataFrame(
+        event = [1, 2],
+        signal_start_index = [500, 900],
+        signal_start_index_ae = [450, 900],
+    )
+    @test mode_events(events, "A") === events
+    credited = mode_events(events, "AE")
+    @test credited.signal_start_index == [450, 900]
+    @test events.signal_start_index == [500, 900]
+    @test_throws ArgumentError mode_events(events, "AET")
+    @test_throws ArgumentError mode_events(events, "X")
 end
 
 @testset "Figures (CairoMakie extension)" begin

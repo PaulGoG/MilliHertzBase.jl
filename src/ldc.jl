@@ -202,6 +202,52 @@ function tdi_to_aet(
 end
 
 """
+    channel_record(path; group = "obs/tdi", channels = "A") -> (record, sample_rate)
+
+The channels of the mode `channels` of the TDI product `path` in single
+precision, as the payload export writes the A channel: a vector for the
+mode `"A"`, else a matrix with one column per channel in the order of
+[`channel_names`](@ref); and the sampling rate [Hz]. It is the content a
+[`ScheduledRecordRun`](@ref) serves along the delivery of a telemetry
+mission that carried the A channel of the same product.
+"""
+function channel_record(
+    path::AbstractString;
+    group::AbstractString = "obs/tdi",
+    channels::AbstractString = "A",
+)
+    tdi = read_tdi(path; group = group)
+    combinations = NamedTuple{(:A, :E, :T)}(tdi_to_aet(tdi.X, tdi.Y, tdi.Z))
+    columns = [Float32.(combinations[c]) for c in channel_names(channels)]
+    record = length(columns) == 1 ? only(columns) : reduce(hcat, columns)
+    return record, 1 / tdi.dt
+end
+
+"""
+    mode_events(events, channels) -> DataFrame
+
+The event table as a detector of the mode `channels` is credited: for
+`"A"` the table itself; for `"AE"` and `"AET"` a copy whose
+`signal_start_index` is the onset of that channel set
+(`signal_start_index_ae`, `signal_start_index_aet`, written by the
+labelling stage under that mode). `ArgumentError` when the table lacks the
+column.
+"""
+function mode_events(events::DataFrame, channels::AbstractString)
+    channels == "A" && return events
+    column = "signal_start_index" * channel_suffix(channels)
+    column in names(events) || throw(
+        ArgumentError(
+            "the event table has no column $column; label the truth stream under " *
+            "[tdi] channels = \"$channels\".",
+        ),
+    )
+    credited = copy(events)
+    credited.signal_start_index = copy(events[!, column])
+    return credited
+end
+
+"""
     hdf5_dataset(parent, name) -> HDF5.Dataset
 
 The dataset `name` of the HDF5 file or group `parent`; `ArgumentError` when
