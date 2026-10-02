@@ -1,5 +1,6 @@
 # Pre-processing stage: an HDF5 TDI product is
-# reduced to the orthogonal A channel, high-passed, whitened, and cut into
+# reduced to the orthogonal channels of the configured mode (A, or A and
+# E), each high-passed and whitened by its own PSD, and cut into
 # sliding windows whose spectral features (and, with a point-wise label
 # file, window labels) are persisted as CSV beside a TOML sidecar. The
 # sidecar carries a hash of every parameter that determines the product,
@@ -52,11 +53,13 @@ function analytic_psd_parameters(settings::NamedTuple)
 end
 
 """
-    preprocessing_parameters(settings, h5_path, tdi_group, label_path) -> Dict{String, Any}
+    preprocessing_parameters(settings, h5_path, tdi_group, label_path; channels = "A")
+        -> Dict{String, Any}
 
 Every parameter that determines the pre-processed product: the content
 digest of the source file ([`content_digest`](@ref)) and its TDI group, the
-window geometry, the whitening mode with the parameters of that mode, the
+channel mode when it is not `"A"` (so that the products made before the
+modes existed keep their digest), the window geometry, the whitening mode with the parameters of that mode, the
 analysis bands, the record high-pass, the feature set, and — when
 `label_path` is non-empty — the content digest of the label file. Inputs
 are identified by content, not by path or modification time, so a moved or
@@ -67,7 +70,8 @@ function preprocessing_parameters(
     settings::NamedTuple,
     h5_path::AbstractString,
     tdi_group::AbstractString,
-    label_path::AbstractString,
+    label_path::AbstractString;
+    channels::AbstractString = "A",
 )
     parameters = Dict{String,Any}(
         "source_sha256" => content_digest(h5_path),
@@ -89,6 +93,7 @@ function preprocessing_parameters(
         parameters["psd_smoothing_dex"] = settings.psd_smoothing_dex
     end
     isempty(label_path) || (parameters["label_file_sha256"] = content_digest(label_path))
+    channels == "A" || (parameters["channels"] = String(channels))
     return parameters
 end
 
@@ -110,18 +115,25 @@ end
                       output_prefix = nothing, force = false) -> NamedTuple
 
 Pre-processing stage: the TDI product `h5_file` (group `tdi_group`) is read
-([`read_tdi`](@ref)), combined into the orthogonal A channel
-([`tdi_to_aet`](@ref)), high-passed below the analysis bands
-([`highpass_record`](@ref)), whitened by the configured PSD
-([`whitening_psd`](@ref), [`whiten_record`](@ref)), and cut into sliding
-windows whose features ([`window_features`](@ref)) are written to
+([`read_tdi`](@ref)), combined into the orthogonal channels of the mode
+`[tdi] channels` ([`tdi_to_aet`](@ref), [`tdi_settings`](@ref)): A, or A
+and E. Each channel is high-passed below the analysis bands
+([`highpass_record`](@ref)) and whitened by its own PSD of the configured
+kind ([`whitening_psd`](@ref), [`whiten_record`](@ref)); the record is cut
+into sliding windows whose features ([`window_features`](@ref)) are those
+of the channel-averaged periodogram, so their number is that of the A mode.
+The mode `"AE"` appends `_ae` to `output_prefix`; the mode `"AET"` is
+refused until the features of the T channel, which carries no
+gravitational-wave signal below about 10 mHz and serves as a veto, exist.
+The features are written to
 `<inputs>/<output_prefix>_features.csv` with a TOML sidecar
 `<output_prefix>_features.toml` holding the window geometry, the feature
 and whitening description, the parameter hash, and the provenance
 sections of [`write_toml`](@ref). A point-wise `label_file` (columns
 `Label`, optionally `SNR`, one row per sample) yields the window labels
 `<output_prefix>_labels.csv` ([`window_labels`](@ref)); the `"welch"`
-mode also persists the estimated PSD as `<output_prefix>_psd.csv`.
+mode also persists the estimated PSD as `<output_prefix>_psd.csv`
+(`frequency_hz`, `psd`; for several channels `psd_A`, `psd_E`).
 
 Every parameter comes from the `[preprocessing]`, `[paths]`, and
 `[resources]` sections of `config` ([`preprocessing_settings`](@ref),
@@ -149,9 +161,18 @@ function preprocess_record(
     @timeit TIMER "preprocessing" begin
         settings = preprocessing_settings(config)
         resources = resource_settings(config)
+        mode = tdi_settings(config).channels
+        mode == "AET" && throw(
+            ArgumentError(
+                "[tdi] channels = \"AET\": the features of the T channel are not " *
+                "implemented; pre-process in the mode \"A\" or \"AE\".",
+            ),
+        )
+        channels = channel_names(mode)
         h5_path = resolvepath(override(h5_file, settings.h5_file))
         group = String(override(tdi_group, settings.tdi_group))
-        prefix = String(override(output_prefix, settings.output_prefix))
+        prefix =
+            String(override(output_prefix, settings.output_prefix)) * channel_suffix(mode)
         label_path = isempty(label_file) ? "" : resolvepath(label_file)
         has_labels = !isempty(label_path)
         isfile(h5_path) || throw(ArgumentError("HDF5 file not found: $h5_path"))
@@ -175,7 +196,8 @@ function preprocess_record(
             )
         end
 
-        parameters = preprocessing_parameters(settings, h5_path, group, label_path)
+        parameters =
+            preprocessing_parameters(settings, h5_path, group, label_path; channels = mode)
         digest = parameter_digest(parameters)
         writes_psd = settings.psd == "welch"
         existing = force ? nothing : reusable_features(sidecar_path, digest)
@@ -203,7 +225,7 @@ function preprocess_record(
         else
             n_points = tdi_sample_count(h5_path, group)
             check_memory(
-                record_memory_estimate_gib(n_points),
+                length(channels) * record_memory_estimate_gib(n_points),
                 resources;
                 stage = "preprocessing",
             )
@@ -225,25 +247,49 @@ function preprocess_record(
             @info "record" n_points sample_rate_hz = fs window_size = settings.window_size step_size =
                 settings.step_size n_windows
 
-            # Orthogonal A channel; zero-phase high-pass below the analysis
-            # bands, since the steep low-frequency noise would otherwise leak
-            # into every window through the taper; whitening of the whole
-            # record so that the tapered periodogram of every window is
-            # unbiased.
-            A, _, _ = tdi_to_aet(tdi.X, tdi.Y, tdi.Z)
-            if settings.highpass_cutoff_hz > 0
-                A = highpass_record(
-                    A,
-                    fs;
-                    cutoff = settings.highpass_cutoff_hz,
-                    order = settings.highpass_order,
+            # Orthogonal channels of the mode; for each, a zero-phase high-pass
+            # below the analysis bands, since the steep low-frequency noise
+            # would otherwise leak into every window through the taper, and
+            # whitening of the whole record by the channel's own PSD so that
+            # the tapered periodogram of every window is unbiased.
+            combinations = NamedTuple{(:A, :E, :T)}(tdi_to_aet(tdi.X, tdi.Y, tdi.Z))
+            conditioned = Vector{Vector{Float64}}()
+            descriptions = String[]
+            psd_tables = DataFrame[]
+            for channel in channels
+                series = combinations[channel]
+                if settings.highpass_cutoff_hz > 0
+                    series = highpass_record(
+                        series,
+                        fs;
+                        cutoff = settings.highpass_cutoff_hz,
+                        order = settings.highpass_order,
+                    )
+                end
+                psd, description, table =
+                    whitening_psd(settings, series, fs; channel = channel)
+                psd !== nothing && (series = whiten_record(series, fs; psd = psd))
+                push!(conditioned, series)
+                push!(descriptions, description)
+                table === nothing || push!(psd_tables, table)
+            end
+            psd_description =
+                length(channels) == 1 ? only(descriptions) :
+                join(("$c: $d" for (c, d) in zip(channels, descriptions)), "; ")
+            psd_table = if isempty(psd_tables)
+                nothing
+            elseif length(channels) == 1
+                only(psd_tables)
+            else
+                DataFrame(
+                    :frequency_hz => first(psd_tables).frequency_hz,
+                    (Symbol("psd_", c) => t.psd for (c, t) in zip(channels, psd_tables))...,
                 )
             end
-            psd, psd_description, psd_table = whitening_psd(settings, A, fs)
-            @info "conditioning" highpass_cutoff_hz = settings.highpass_cutoff_hz highpass_order =
-                settings.highpass_order whitening = psd_description feature_set =
-                settings.feature_set
-            psd !== nothing && (A = whiten_record(A, fs; psd = psd))
+            A = length(channels) == 1 ? only(conditioned) : reduce(hcat, conditioned)
+            @info "conditioning" channels = mode highpass_cutoff_hz =
+                settings.highpass_cutoff_hz highpass_order = settings.highpass_order whitening =
+                psd_description feature_set = settings.feature_set
 
             raw_labels = Int[]
             raw_snrs = Float32[]
@@ -303,7 +349,7 @@ function preprocess_record(
                 Dict{String,Any}(
                     "product" => product_table(
                         "features";
-                        channels = "A",
+                        channels = mode,
                         parents = Dict{String,Any}(
                             "source" => parameters["source_sha256"],
                             (
@@ -315,6 +361,7 @@ function preprocess_record(
                     "features" => Dict{String,Any}(
                         "source" => provenance_path(h5_path),
                         "tdi_group" => group,
+                        "channels" => mode,
                         "window_size" => settings.window_size,
                         "step_size" => settings.step_size,
                         "sample_rate" => fs,

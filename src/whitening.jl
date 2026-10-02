@@ -26,6 +26,13 @@ function whitening_psd_from_sidecar(sidecar_path::AbstractString)
             ),
         )
     recorded("psd")
+    channels = cfgget(features, "channels", "A"; type = String)
+    channels == "A" || throw(
+        ArgumentError(
+            "the sidecar $sidecar_path describes a product of the channels $channels; " *
+            "the whitening PSD of a streamed replay is rebuilt for the A channel only.",
+        ),
+    )
     mode = cfgget(features, "psd", "model"; type = String)
     if mode == "model" || mode == "channel"
         recorded("observation_years")
@@ -66,15 +73,16 @@ function whitening_psd_from_sidecar(sidecar_path::AbstractString)
 end
 
 """
-    whitening_psd(settings, A, fs) -> (psd, description, table)
+    whitening_psd(settings, A, fs; channel = :A) -> (psd, description, table)
 
-Callable one-sided PSD whitening the record `A` sampled at `fs` [Hz] for
+Callable one-sided PSD whitening the record `A` of the TDI channel
+`channel` (`:A`, `:E` or `:T`) sampled at `fs` [Hz] for
 the mode `settings.psd` of the `[preprocessing]` section
 ([`preprocessing_settings`](@ref)): `"model"` (Robson–Cornish–Liu strain
 sensitivity with the confusion fit of `observation_years`, for
 sky-averaged simulator products), `"channel"` (that sensitivity times the
 sky-averaged response ``R(f)``, the Michelson-channel PSD of the
-simulator's constellation-response products), `"ldc"` (analytic A-channel TDI PSD of the `ldc` package in
+simulator's constellation-response products), `"ldc"` (analytic TDI PSD of the channel in the `ldc` package, in
 fractional-frequency units — `ldc_model`, `ldc_tdi2`,
 `ldc_observation_years` — for LDC products), `"welch"` (median-averaged
 estimate from the record itself over segments of `welch_segment_length`
@@ -82,10 +90,28 @@ samples, smoothed in log-frequency by `psd_smoothing_dex` dex when that is
 positive; [`smooth_psd`](@ref)), or `"none"` (no whitening; `psd` is `nothing`). `description` is
 the human-readable account persisted in the sidecar; `table` is the
 estimated PSD as a `DataFrame` (`frequency_hz`, `psd`) for `"welch"` and
-`nothing` otherwise.
+`nothing` otherwise. The T channel takes a measured PSD or none: the
+analytic kinds are refused for it.
 """
-function whitening_psd(settings::NamedTuple, A::AbstractVector{<:Real}, fs::Real)
+function whitening_psd(
+    settings::NamedTuple,
+    A::AbstractVector{<:Real},
+    fs::Real;
+    channel::Symbol = :A,
+)
     mode = settings.psd
+    channel in (:A, :E, :T) ||
+        throw(ArgumentError("channel = :$channel; expected :A, :E or :T."))
+    # The equal-arm analytic PSD of T is wrong below a few mHz even on
+    # equal-arm products, so T is whitened by a measured PSD only
+    channel == :T &&
+        mode in ("model", "channel", "ldc") &&
+        throw(
+            ArgumentError(
+                "psd = $(repr(mode)) is an analytic PSD; the T channel takes a measured " *
+                "one (psd = \"welch\") or none.",
+            ),
+        )
     if mode == "model"
         model_years = settings.observation_years
         psd_model = f -> lisa_noise_psd(f; observation_years = model_years)
@@ -108,14 +134,14 @@ function whitening_psd(settings::NamedTuple, A::AbstractVector{<:Real}, fs::Real
         psd_ldc =
             f -> ldc_tdi_psd(
                 f;
-                channel = :A,
+                channel = channel,
                 model = model,
                 tdi2 = tdi2,
                 observation_years = ldc_years,
             )
         psd_ldc(1e-3)   # validates the model name before the record is processed
         return psd_ldc,
-        "LDC analytic A-channel PSD, model $model, TDI $(tdi2 ? 2 : 1.5), confusion $ldc_years yr",
+        "LDC analytic $channel-channel PSD, model $model, TDI $(tdi2 ? 2 : 1.5), confusion $ldc_years yr",
         nothing
     elseif mode == "welch"
         segment = settings.welch_segment_length

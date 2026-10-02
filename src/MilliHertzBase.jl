@@ -67,6 +67,7 @@ export channel_noise_psd, draw_extrinsic, lisa_response, detector_response, ldc_
 export ldc_confusion_psd, tdi_to_aet, read_tdi, read_catalog, windowed_snr, snr_peaks
 export detectable_spans, signal_onsets, generation_settings, preprocessing_settings
 export ldc_settings, telemetry_settings, generate_telemetry, preprocess_record
+export tdi_settings, channel_names, channel_suffix, CHANNEL_MODES
 export label_truth_stream, channel_catalog, whitening_psd, figure_mission_trace
 export figure_telemetry_trace, whitening_psd_from_sidecar, open_telemetry_run
 export export_telemetry_payload, samples_per_batch, source_frame, project_spectrum

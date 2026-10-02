@@ -125,6 +125,48 @@ function generation_settings(config::AbstractDict)
 end
 
 """
+    CHANNEL_MODES
+
+The TDI channel modes of `[tdi] channels`: `"A"`, `"AE"`, and `"AET"`.
+"""
+const CHANNEL_MODES = ("A", "AE", "AET")
+
+"""
+    channel_names(mode) -> Tuple of Symbols
+
+The noise-orthogonal TDI combinations of a channel mode, in the order of
+the columns of a multichannel record: `(:A,)`, `(:A, :E)` or
+`(:A, :E, :T)`.
+"""
+function channel_names(mode::AbstractString)
+    mode == "A" && return (:A,)
+    mode == "AE" && return (:A, :E)
+    mode == "AET" && return (:A, :E, :T)
+    throw(ArgumentError("channels = $(repr(mode)); expected one of $(CHANNEL_MODES)."))
+end
+
+"""
+    channel_suffix(mode) -> String
+
+Suffix a channel mode adds to the stem of its products: none for `"A"`
+(the names of single-channel products are unchanged), `"_ae"`, `"_aet"`.
+"""
+channel_suffix(mode::AbstractString) =
+    length(channel_names(mode)) == 1 ? "" : "_" * lowercase(mode)
+
+"""
+    tdi_settings(config) -> NamedTuple
+
+Validated `[tdi]` parameters: `channels`, the channel mode of every product
+made from a TDI record (`"A"` when the section or the key is absent, as
+for the products made before the modes existed).
+"""
+function tdi_settings(config::AbstractDict)
+    t = section(config, "tdi")
+    return (channels = cfgget(t, "channels", "A"; type = String, choices = CHANNEL_MODES),)
+end
+
+"""
     preprocessing_settings(config) -> NamedTuple
 
 Validated `[preprocessing]` parameters: input product and TDI group, window

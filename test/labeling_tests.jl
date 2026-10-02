@@ -98,6 +98,52 @@
         @test abs(lead(1) - (onset - merger)) <= 30
         @test abs(lead(2) - (onset - merger)) <= 30
 
+        # Channel modes. The burst of the first truth stream lies in A alone
+        # (E vanishes), so the network of A and E sees the A onset; the A
+        # columns and the labels do not depend on the mode
+        ae = deepcopy(base)
+        ae["tdi"] = Dict{String,Any}("channels" => "AE")
+        ae["ldc"]["output_prefix"] = "synthetic_ae"
+        in_a = label_truth_stream(ae; truth_csv = truth)
+        @test !("signal_start_index_ae" in names(fixed.events))
+        @test in_a.events.signal_start_index == fixed.events.signal_start_index
+        @test in_a.events.signal_start_index_ae == fixed.events.signal_start_index
+        @test in_a.events.label_peak_snr_ae ≈ fixed.events.label_peak_snr
+        @test CSV.read(in_a.label_path, DataFrame).Label == labels.Label
+        snapshot = TOML.parsefile(in_a.snapshot_path)
+        @test snapshot["product"]["channels"] == "AE"
+        @test occursin("network SNR of A and E", snapshot["labels"]["signal_onset_ae"])
+        # The same burst in both channels (X = -s/√2, Y = -√6 s/2, Z = s/√2
+        # recombine to A = E = s): the network SNR is √2 times that of A, and
+        # the threshold is reached earlier
+        truth_ae = joinpath(dir, "truth_ae.csv")
+        CSV.write(
+            truth_ae,
+            DataFrame(
+                t = 5.0 .* k,
+                X = -s ./ sqrt(2),
+                Y = -(sqrt(6) / 2) .* s,
+                Z = s ./ sqrt(2),
+            ),
+        )
+        ae["ldc"]["output_prefix"] = "synthetic_both"
+        both = label_truth_stream(ae; truth_csv = truth_ae)
+        @test both.events.signal_start_index == fixed.events.signal_start_index
+        @test both.events.label_peak_snr_ae[1] ≈ sqrt(2) * both.events.label_peak_snr[1] rtol =
+            1e-6
+        @test both.events.signal_start_index_ae[1] < both.events.signal_start_index[1]
+        @test both.events.signal_start_index_ae[1] > both.events.label_start_index[1]
+        # Three channels: the onset of A and E, and the snapshot says why
+        aet = deepcopy(ae)
+        aet["tdi"]["channels"] = "AET"
+        aet["ldc"]["output_prefix"] = "synthetic_aet"
+        three = label_truth_stream(aet; truth_csv = truth_ae)
+        @test three.events.signal_start_index_aet == both.events.signal_start_index_ae
+        @test occursin(
+            "set to the AE onset",
+            TOML.parsefile(three.snapshot_path)["labels"]["signal_onset_aet"],
+        )
+
         # Arguments and malformed truth
         @test_throws ArgumentError label_truth_stream(
             base;

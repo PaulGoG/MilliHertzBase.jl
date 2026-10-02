@@ -14,8 +14,37 @@ DeepSpaceTelemetry producer.
 | Detector response | `AbstractDetectorResponse`, `SkyAveragedResponse`, `detector_response`; the constellation response `lisa_response` through the CurvatureDistinguishability extension |
 | LDC products | `read_tdi`, `tdi_to_aet`, `read_catalog`, `catalog_events`, `whitening_psd`, `whitening_psd_from_sidecar` |
 | Labels | `windowed_snr`, `snr_peaks`, `detectable_span`, `detectable_spans`, `signal_onsets` |
-| Stages | `generate_telemetry`, `preprocess_record`, `label_truth_stream`, `export_telemetry_payload`, each driven by a TOML configuration (`generation_settings`, `preprocessing_settings`, `ldc_settings`, `telemetry_settings`) |
+| Stages | `generate_telemetry`, `preprocess_record`, `label_truth_stream`, `export_telemetry_payload`, each driven by a TOML configuration (`generation_settings`, `preprocessing_settings`, `ldc_settings`, `telemetry_settings`, `tdi_settings`) |
+| Channel modes | `[tdi] channels = "A" \| "AE" \| "AET"` (`tdi_settings`, `channel_names`, `channel_suffix`), recorded in every product |
 | Extensions | DeepSpaceTelemetry (`open_telemetry_run`: a producer run directory as a StreamingInference run), CurvatureDistinguishability (constellation response), CairoMakie (`figure_mission_trace`, `figure_telemetry_trace`) |
+
+## Channel modes
+
+A TDI record holds the Michelson combinations X, Y, Z; the stages work on
+the noise-orthogonal combinations A, E, T ([`tdi_to_aet`](@ref)). The mode
+is set once, under `[tdi] channels`, and every product records it in its
+sidecar (`[product] channels`).
+
+- `"A"`, the default and the mode of every product made before the modes
+  existed: the single channel, under the product names used so far.
+- `"AE"`: [`preprocess_record`](@ref) whitens A and E each by its own PSD
+  and computes the features of a window from the average of the two
+  periodograms, so their number is that of the A mode; the product stems
+  gain `_ae`. [`label_truth_stream`](@ref) adds the onset of a detector
+  that reads both channels, from the network SNR
+  ``\\rho_{AE}^2 = \\rho_A^2 + \\rho_E^2`` (orthogonal noise, Prince et al.
+  2002, doi:10.1103/PhysRevD.66.122002), as `signal_start_index_ae`.
+- `"AET"`: on equal arms T carries no gravitational-wave signal of
+  massive-black-hole binaries below about 10 mHz, and its analytic
+  equal-arm PSD is wrong below a few mHz, so T is whitened by a measured
+  PSD only and serves as a veto against instrumental artefacts. Its
+  features are not implemented yet: pre-processing refuses the mode, and
+  the labelling stage sets the three-channel onset to the AE onset and
+  records that it did.
+
+A streamed replay still reads the A channel only: the payload export and
+the whitening PSD rebuilt from a sidecar ([`whitening_psd_from_sidecar`](@ref))
+refuse a multichannel product.
 
 ## Example
 

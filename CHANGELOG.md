@@ -16,6 +16,18 @@ follow [Semantic Versioning](https://semver.org/).
   stages, and the DeepSpaceTelemetry, CurvatureDistinguishability and
   CairoMakie extensions. It depends on StreamingInference.jl.
 - The constants `L_ARM`, `C_LIGHT` and `F_STAR` are public names.
+- Channel modes, `[tdi] channels = "A" | "AE" | "AET"` (`tdi_settings`,
+  `channel_names`, `channel_suffix`), recorded in every product. In the
+  mode `"AE"` the pre-processing stage whitens A and E each by its own PSD
+  and writes the features of the channel-averaged periodogram under a stem
+  ending in `_ae`, with one PSD column per channel; the labelling stage
+  adds the onset of the A and E network (`signal_start_index_ae`,
+  `label_peak_snr_ae`) from the root of the summed squared window SNRs.
+  `"AET"` is accepted by the labelling stage, which sets the three-channel
+  onset to the AE onset and says so, and refused by the pre-processing
+  stage until the features of the T channel exist. `whitening_psd` takes
+  the `channel` and refuses an analytic PSD for T. The mode `"A"` leaves
+  every product as it was.
 
 ### Changed (relative to the layer inside MilliHertzQML.jl)
 - `figure_mission_trace` takes `score_label`, `score_name` and

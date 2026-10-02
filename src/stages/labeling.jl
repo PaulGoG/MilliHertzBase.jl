@@ -121,6 +121,17 @@ comes from the `[ldc]`, `[paths]`, and `[resources]` sections of `config`
 ([`ldc_settings`](@ref)); `h5_file` and `truth_csv` are mutually exclusive
 and replace the configured `h5_file`.
 
+Under `[tdi] channels = "AE"` ([`tdi_settings`](@ref)) the event table also
+carries the onset of a detector that reads A and E: the E channel is
+scanned against its own analytic PSD, the window SNRs are combined as
+``\\rho_{AE}^2 = \\rho_A^2 + \\rho_E^2`` (orthogonal noise; Prince et al.
+2002, doi:10.1103/PhysRevD.66.122002), and `signal_start_index_ae` and
+`label_peak_snr_ae` are found from it as their A counterparts are. Under
+`"AET"` the column `signal_start_index_aet` repeats the AE onset: on equal
+arms T carries no signal of these sources below about 10 mHz, and the
+snapshot says so. The labels, the mergers and the A columns do not depend
+on the mode.
+
 Writes, under the `inputs` root, `<output_prefix>_labels.csv` (`Label`,
 `SNR`: the peak windowed SNR of the event a sample belongs to),
 `<output_prefix>_events.csv` (one row per merger with its sample index,
@@ -145,6 +156,7 @@ function label_truth_stream(
     @timeit TIMER "labeling" begin
         settings = ldc_settings(config)
         resources = resource_settings(config)
+        mode = tdi_settings(config).channels
         prefix = String(override(output_prefix, settings.output_prefix))
         (h5_file === nothing || truth_csv === nothing) ||
             throw(ArgumentError("h5_file and truth_csv are mutually exclusive."))
@@ -174,7 +186,7 @@ function label_truth_stream(
         fs = 1 / truth.dt
         t0 = truth.t[1]
         check_memory(record_memory_estimate_gib(n), resources; stage = "labeling")
-        A, _, _ = tdi_to_aet(truth.X, truth.Y, truth.Z)
+        A, E, _ = tdi_to_aet(truth.X, truth.Y, truth.Z)
         @info "truth stream" source n_samples = n sample_rate_hz = fs t0 max_abs_A =
             maximum(abs, A)
 
@@ -194,6 +206,23 @@ function label_truth_stream(
             )
         @info "windowed matched-filter SNR" window_size step psd_model tdi2 observation_years
         starts, snr = windowed_snr(A, fs; window_size = window_size, step = step, psd = psd)
+        # Network SNR of the A and E channels: with orthogonal noise the
+        # squared SNRs add (Prince et al. 2002, doi:10.1103/PhysRevD.66.122002)
+        snr_ae = if mode == "A"
+            nothing
+        else
+            psd_e =
+                f -> ldc_tdi_psd(
+                    f;
+                    channel = :E,
+                    model = psd_model,
+                    tdi2 = tdi2,
+                    observation_years = observation_years,
+                )
+            _, snr_e =
+                windowed_snr(E, fs; window_size = window_size, step = step, psd = psd_e)
+            sqrt.(snr .^ 2 .+ snr_e .^ 2)
+        end
 
         # Mergers: from the catalogue when available, else from SNR peaks
         merger_indices = if catalog !== nothing
@@ -273,6 +302,27 @@ function label_truth_stream(
                 lower;
                 threshold = settings.label_snr_threshold,
             )
+            if snr_ae !== nothing
+                events.label_peak_snr_ae = span_peak_snr(
+                    spans,
+                    starts,
+                    snr_ae;
+                    window_size = window_size,
+                    step = step,
+                )
+                events.signal_start_index_ae = signal_onsets(
+                    starts,
+                    snr_ae,
+                    merger_indices,
+                    lower;
+                    threshold = settings.label_snr_threshold,
+                )
+                # T carries no gravitational-wave signal of these sources below
+                # about 10 mHz on equal arms, and its noise would have to be
+                # measured: the onset of the three channels is that of A and E
+                mode == "AET" &&
+                    (events.signal_start_index_aet = copy(events.signal_start_index_ae))
+            end
         end
         write_csv(events_path, events)
         write_csv(
@@ -289,7 +339,7 @@ function label_truth_stream(
             Dict{String,Any}(
                 "product" => product_table(
                     "labels";
-                    channels = "A",
+                    channels = mode,
                     parents = Dict{String,Any}("source" => content_digest(source)),
                 ),
                 "labels" => Dict{String,Any}(
@@ -306,6 +356,18 @@ function label_truth_stream(
                         settings.label_span == "fixed" ?
                         "first window reaching label_snr_threshold inside the span and past the preceding span" :
                         "",
+                    (
+                        mode != "A" && settings.label_span == "fixed" ?
+                        (
+                            "signal_onset_ae" => "as signal_onset, on the network SNR of A and E, the root of the sum of their squared window SNRs",
+                        ) : ()
+                    )...,
+                    (
+                        mode == "AET" && settings.label_span == "fixed" ?
+                        (
+                            "signal_onset_aet" => "set to the AE onset: T is signal-free below about 10 mHz on equal arms and its noise is not measured here",
+                        ) : ()
+                    )...,
                     "merger_snr_threshold" => settings.merger_snr_threshold,
                     "precursor_ratio" => settings.precursor_ratio,
                     "peak_min_separation_sec" => settings.peak_min_separation_sec,

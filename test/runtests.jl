@@ -513,6 +513,112 @@ end
     end
 end
 
+@testset "Channel modes (pre-processing)" begin
+    empty = Dict{String,Any}()
+    mode(m) = Dict{String,Any}("tdi" => Dict{String,Any}("channels" => m))
+    @test tdi_settings(empty).channels == "A"
+    @test tdi_settings(mode("AE")).channels == "AE"
+    @test_throws ArgumentError tdi_settings(mode("EA"))
+    @test channel_names.(CHANNEL_MODES) == ((:A,), (:A, :E), (:A, :E, :T))
+    @test channel_suffix.(CHANNEL_MODES) == ("", "_ae", "_aet")
+    @test_throws ArgumentError channel_names("X")
+
+    mktempdir() do dir
+        fs = 0.2
+        n = 80_000
+        h5 = joinpath(dir, "record.h5")
+        noise = [
+            synthesize_noise(StableRNG(seed), n, fs; f_min = 1e-5, psd = lisa_noise_psd) for seed in 1:3
+        ]
+        HDF5.h5open(h5, "w") do file
+            tdi = HDF5.create_group(HDF5.create_group(file, "obs"), "tdi")
+            tdi["t"] = collect((0:(n-1)) ./ fs)
+            tdi["X"] = noise[1]
+            tdi["Y"] = noise[2]
+            tdi["Z"] = noise[3]
+        end
+        config(m) = merge(
+            mode(m),
+            Dict{String,Any}(
+                "paths" => Dict{String,Any}("inputs" => joinpath(dir, "inputs")),
+                "preprocessing" => Dict{String,Any}(
+                    "h5_file" => h5,
+                    "tdi_group" => "obs/tdi",
+                    "psd" => "welch",
+                    "welch_segment_length" => 8192,
+                    "feature_set" => "bands",
+                    "band_edges_hz" => [1e-3, 2e-3, 5e-3, 2e-2],
+                    "output_prefix" => "modes",
+                    "edge_margin" => 2.0,
+                ),
+            ),
+        )
+        settings = preprocessing_settings(config("A"))
+        A, E, T = tdi_to_aet(noise...)
+        function conditioned(x, channel)
+            y = highpass_record(x, fs; cutoff = settings.highpass_cutoff_hz, order = 8)
+            psd, _, table = whitening_psd(settings, y, fs; channel = channel)
+            return whiten_record(y, fs; psd = psd), table
+        end
+        features(record) = window_features(
+            record,
+            fs;
+            window_size = 1000,
+            step_size = 100,
+            low_band = settings.low_band_hz,
+            high_band = settings.high_band_hz,
+            band_edges = settings.band_edges_hz,
+            feature_set = :bands,
+        )[
+            21:(end-20),
+            :,
+        ]
+        white_a, table_a = conditioned(A, :A)
+        white_e, table_e = conditioned(E, :E)
+
+        # Mode A: the product of the single channel, under the unchanged names
+        single = preprocess_record(config("A"))
+        @test basename(single.features_path) == "modes_features.csv"
+        @test Matrix{Float32}(CSV.read(single.features_path, DataFrame)) ==
+              features(white_a)
+        sidecar_a = TOML.parsefile(single.sidecar_path)
+        @test sidecar_a["product"]["channels"] == sidecar_a["features"]["channels"] == "A"
+        @test names(CSV.read(single.psd_path, DataFrame)) == ["frequency_hz", "psd"]
+
+        # Mode AE: each channel whitened by its own PSD, the features of the
+        # channel-averaged periodogram, as many as in the mode A
+        pair = preprocess_record(config("AE"))
+        @test basename(pair.features_path) == "modes_ae_features.csv"
+        table = Matrix{Float32}(CSV.read(pair.features_path, DataFrame))
+        @test table == features(hcat(white_a, white_e))
+        @test size(table) == size(features(white_a)) && table != features(white_a)
+        sidecar = TOML.parsefile(pair.sidecar_path)
+        @test sidecar["product"]["channels"] == sidecar["features"]["channels"] == "AE"
+        @test startswith(sidecar["features"]["psd_description"], "A: median Welch") &&
+              occursin("; E: median Welch", sidecar["features"]["psd_description"])
+        @test sidecar["features"]["parameter_hash"] !=
+              sidecar_a["features"]["parameter_hash"]
+        psds = CSV.read(pair.psd_path, DataFrame)
+        @test names(psds) == ["frequency_hz", "psd_A", "psd_E"]
+        @test psds.psd_A == table_a.psd && psds.psd_E == table_e.psd
+        @test preprocess_record(config("AE")).skipped
+        # A streamed replay rebuilds the whitening PSD of the A channel only
+        @test_throws ArgumentError whitening_psd_from_sidecar(pair.sidecar_path)
+        @test whitening_psd_from_sidecar(single.sidecar_path)(2e-3) > 0
+
+        # T: no features yet, and a measured PSD only
+        @test_throws ArgumentError preprocess_record(config("AET"))
+        ldc = preprocessing_settings(
+            Dict{String,Any}("preprocessing" => Dict{String,Any}("psd" => "ldc")),
+        )
+        @test whitening_psd(ldc, E, fs; channel = :E)[2] ==
+              "LDC analytic E-channel PSD, model sangria, TDI 1.5, confusion 0.0 yr"
+        @test_throws ArgumentError whitening_psd(ldc, T, fs; channel = :T)
+        @test whitening_psd(settings, T, fs; channel = :T)[1](2e-3) > 0
+        @test_throws ArgumentError whitening_psd(settings, T, fs; channel = :X)
+    end
+end
+
 @testset "Figures (CairoMakie extension)" begin
     @test Base.get_extension(MilliHertzBase, :MilliHertzBaseCairoMakieExt) !== nothing
     rng = StableRNG(21)
