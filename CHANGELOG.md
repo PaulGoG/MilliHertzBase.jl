@@ -37,6 +37,12 @@ follow [Semantic Versioning](https://semver.org/).
   carried its A channel), `whitening_psd_from_sidecar` returning one PSD
   per channel of a multichannel product, and `mode_events` (the event table
   with the onset of a channel set).
+- Records with gaps: `preprocess_record` conditions every stretch between
+  samples marked `NaN` on its own (`stretch_whitening_psd`: the Welch
+  estimate pooled over the stretches), keeps the windows of the record's
+  grid that lie inside a stretch less the edge margin at both ends of
+  each, and lists the stretches in the sidecar (`stretches`, `gap_samples`,
+  schema 2). A record without gaps gives the product it gave before.
 
 ### Changed (relative to the layer inside MilliHertzQML.jl)
 - `figure_mission_trace` takes `score_label`, `score_name` and

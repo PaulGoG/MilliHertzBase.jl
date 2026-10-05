@@ -50,6 +50,16 @@ sidecar (`[product] channels`).
   and the labelling stage sets the three-channel onset to the AE onset and
   records that it did.
 
+A record with gaps — samples marked `NaN`, as in the LDC-2b (Spritz)
+products — is pre-processed stretch by stretch: every stretch between two
+gaps is high-passed and whitened on its own, the Welch estimate is pooled
+over the stretches so that no segment spans a gap, and the windows are
+those of the grid of the record that lie inside a stretch, less the edge
+margin at both ends of every stretch. The sidecar of such a product lists
+the stretches (`stretches`, with `gap_samples`, under schema 2), and
+`window_indices` of StreamingInference.jl gives the record window of every
+row.
+
 The telemetry producer carries one payload column, the A channel
 ([`export_telemetry_payload`](@ref)). A streamed replay of several channels
 takes the delivery of such a mission and serves the channels of every

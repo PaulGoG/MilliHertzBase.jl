@@ -655,6 +655,157 @@ end
     end
 end
 
+@testset "Records with gaps (pre-processing)" begin
+    mktempdir() do dir
+        fs = 0.2
+        n = 90_000
+        window, step, margin = 1000, 100, 20
+        noise = [
+            synthesize_noise(StableRNG(seed), n, fs; f_min = 1e-5, psd = lisa_noise_psd) for seed in 11:13
+        ]
+        X, Y, Z = copy.(noise)
+        # A long gap in all three, a short one in X alone, and one that leaves
+        # a last stretch too short for a window after the edge margin
+        X[20_001:21_500] .= NaN
+        Y[20_001:21_500] .= NaN
+        Z[20_001:21_500] .= NaN
+        X[55_000:55_003] .= NaN
+        Y[88_000:88_010] .= NaN
+        function write_record(path, x, y, z)
+            HDF5.h5open(path, "w") do file
+                tdi = HDF5.create_group(HDF5.create_group(file, "obs"), "tdi")
+                tdi["t"] = collect((0:(n-1)) ./ fs)
+                tdi["X"] = x
+                tdi["Y"] = y
+                tdi["Z"] = z
+            end
+            return path
+        end
+        h5 = write_record(joinpath(dir, "gapped.h5"), X, Y, Z)
+        labels_path = joinpath(dir, "points.csv")
+        raw_labels = zeros(Int, n)
+        raw_labels[30_000:31_000] .= 1
+        raw_snrs = Float32.(raw_labels) .* 7.0f0
+        CSV.write(labels_path, DataFrame(Label = raw_labels, SNR = raw_snrs))
+        config(mode, file = h5; prefix = "gapped") = Dict{String,Any}(
+            "tdi" => Dict{String,Any}("channels" => mode),
+            "paths" => Dict{String,Any}("inputs" => joinpath(dir, "inputs")),
+            "preprocessing" => Dict{String,Any}(
+                "h5_file" => file,
+                "tdi_group" => "obs/tdi",
+                "psd" => "welch",
+                "welch_segment_length" => 8192,
+                "feature_set" => "bands",
+                "band_edges_hz" => [1e-3, 2e-3, 5e-3, 2e-2],
+                "output_prefix" => prefix,
+                "edge_margin" => 2.0,
+            ),
+        )
+        settings = preprocessing_settings(config("A"))
+        @test StreamingInference.edge_margin_windows(settings) == margin
+
+        # The reference, stretch by stretch with the functions of the layers
+        stretches = finite_stretches(X, Y, Z)
+        @test stretches == [1:20_000, 21_501:54_999, 55_004:87_999, 88_011:90_000]
+        usable = stretches[1:3]
+        A, E, _ = tdi_to_aet(X, Y, Z)
+        function conditioned(x)
+            passed = [
+                highpass_record(x[r], fs; cutoff = settings.highpass_cutoff_hz, order = 8) for r in usable
+            ]
+            freqs, table = welch_psd(passed, fs; segment_length = 8192, average = :median)
+            psd = interpolated_psd(freqs, table)
+            return [whiten_record(y, fs; psd = psd) for y in passed], table
+        end
+        white_a, table_a = conditioned(A)
+        white_e, table_e = conditioned(E)
+        expected_windows = Int[]
+        rows_a = NTuple{5,Float32}[]
+        rows_ae = NTuple{5,Float32}[]
+        for (k, r) in enumerate(usable)
+            i_lo = cld(first(r) - 1, step) + 1
+            i_hi = fld(last(r) - window, step) + 1
+            for i in (i_lo+margin):(i_hi-margin)
+                lo = (i - 1) * step + 1 - (first(r) - 1)
+                local_rows = lo:(lo+window-1)
+                kw = (; band_edges = settings.band_edges_hz, feature_set = :bands)
+                push!(expected_windows, i)
+                push!(rows_a, extract_features(white_a[k][local_rows], fs; kw...))
+                push!(
+                    rows_ae,
+                    extract_features(
+                        hcat(white_a[k][local_rows], white_e[k][local_rows]),
+                        fs;
+                        kw...,
+                        combination = :max,
+                    ),
+                )
+            end
+        end
+        as_matrix(rows) = Float32[r[j] for r in rows, j in 1:5]
+
+        product = preprocess_record(config("A"); label_file = labels_path)
+        table = Matrix{Float32}(CSV.read(product.features_path, DataFrame))
+        @test table == as_matrix(rows_a)
+        @test product.n_windows == length(expected_windows) == size(table, 1)
+        sidecar = TOML.parsefile(product.sidecar_path)
+        features = sidecar["features"]
+        @test sidecar["product"]["schema"] == 2
+        @test features["gap_samples"] == 1500 + 4 + 11
+        @test features["first_window"] == first(expected_windows)
+        @test features["n_windows"] == length(expected_windows)
+        @test features["n_windows_record"] ==
+              StreamingInference.window_count(n, window, step)
+        @test [(s["first_row"], s["last_row"]) for s in features["stretches"]] == [(first(r), last(r)) for r in usable]
+        @test sum(s["n_windows"] for s in features["stretches"]) == length(expected_windows)
+        @test window_indices(product.features_path) == expected_windows
+        # No window of the product touches a gap, and the index jumps between stretches
+        finite = isfinite.(X) .& isfinite.(Y) .& isfinite.(Z)
+        @test all(
+            all(@view finite[((i-1)*step+1):((i-1)*step+window)]) for i in expected_windows
+        )
+        @test count(>(1), diff(expected_windows)) == 2
+        # The pooled Welch estimate and the labels of the kept windows
+        @test CSV.read(product.psd_path, DataFrame).psd == table_a
+        @test startswith(
+            features["psd_description"],
+            "median Welch estimate pooled over 3 stretches between gaps",
+        )
+        all_labels, all_snrs =
+            window_labels(raw_labels, raw_snrs; window_size = window, step_size = step)
+        written = CSV.read(product.labels_path, DataFrame)
+        @test written.Label == all_labels[expected_windows]
+        @test Float32.(written.SNR) == all_snrs[expected_windows]
+        # Reuse of the product
+        again = preprocess_record(config("A"); label_file = labels_path)
+        @test again.skipped && again.n_windows == product.n_windows
+
+        # Two channels: each stretch whitened by the pooled PSD of its channel
+        pair = preprocess_record(config("AE"))
+        @test Matrix{Float32}(CSV.read(pair.features_path, DataFrame)) == as_matrix(rows_ae)
+        psd_pair = CSV.read(pair.psd_path, DataFrame)
+        @test psd_pair.psd_A == table_a && psd_pair.psd_E == table_e
+        @test window_indices(pair.features_path) == expected_windows
+
+        # A record without gaps keeps its sidecar and schema
+        whole = write_record(joinpath(dir, "whole.h5"), noise...)
+        plain = TOML.parsefile(
+            preprocess_record(config("A", whole; prefix = "whole")).sidecar_path,
+        )
+        @test plain["product"]["schema"] == 1
+        @test !haskey(plain["features"], "stretches") &&
+              !haskey(plain["features"], "gap_samples")
+        @test window_indices(joinpath(dir, "inputs", "whole_features.csv")) ==
+              collect((margin+1):(StreamingInference.window_count(n, window, step)-margin))
+
+        # No stretch long enough for a window after the edge margin
+        broken = copy(noise[1])
+        broken[3000:3000:end] .= NaN
+        short = write_record(joinpath(dir, "short.h5"), broken, noise[2], noise[3])
+        @test_throws ArgumentError preprocess_record(config("A", short; prefix = "short"))
+    end
+end
+
 @testset "Event tables by channel mode" begin
     events = DataFrame(
         event = [1, 2],

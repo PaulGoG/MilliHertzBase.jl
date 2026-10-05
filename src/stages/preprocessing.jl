@@ -1,6 +1,7 @@
 # Pre-processing stage: an HDF5 TDI product is
 # reduced to the orthogonal channels of the configured mode (A, or A and
-# E), each high-passed and whitened by its own PSD, and cut into
+# E), each high-passed and whitened by its own PSD (stretch by stretch
+# between the gaps of a record with gaps), and cut into
 # sliding windows whose spectral features (and, with a point-wise label
 # file, window labels) are persisted as CSV beside a TOML sidecar. The
 # sidecar carries a hash of every parameter that determines the product,
@@ -115,6 +116,220 @@ function reusable_features(sidecar_path::AbstractString, digest::AbstractString)
 end
 
 """
+    gapped_features(settings, combinations, channels, fs, stretches)
+        -> (features, kept, psd_description, psd_table, stretch_tables)
+
+Features of a record with gaps. A stretch is a maximal run of rows
+`a:b` at which X, Y and Z are all finite (`stretches`, from
+`finite_stretches`); `combinations` holds the full-length A, E and T
+records, `NaN` in the gaps, and `channels` the channels of the mode
+([`channel_names`](@ref)). The windows are those of the grid of the
+record — window `i` covers rows `(i - 1) * step_size + 1` to
+`(i - 1) * step_size + window_size` — that lie inside a stretch. The
+circular high-pass and whitening filters ring at both ends of every
+stretch, as at the ends of a record without gaps, so the edge margin
+(`edge_margin_windows`) is dropped at both ends of each; a stretch
+left without a window contributes nothing. Every stretch of a channel is
+high-passed ([`highpass_record`](@ref)) and whitened by one PSD of the
+channel ([`stretch_whitening_psd`](@ref)), for `"welch"` pooled over its
+stretches.
+
+Returns the kept feature rows of all stretches in order
+(`Matrix{Float32}`), the record window index of every row (`kept`), the
+PSD description and table assembled as for a record without gaps, and one
+table per contributing stretch (`first_row`, `last_row`, `first_window`,
+`n_windows`) for the sidecar.
+"""
+function gapped_features(
+    settings::NamedTuple,
+    combinations::NamedTuple,
+    channels,
+    fs::Real,
+    stretches::AbstractVector{<:AbstractUnitRange{<:Integer}},
+)
+    margin = edge_margin_windows(settings)
+    window = settings.window_size
+    step = settings.step_size
+
+    # Windows i_lo:i_hi of the record's grid inside each stretch
+    spans = Tuple{UnitRange{Int},Int,Int}[]
+    for stretch in stretches
+        a, b = Int(first(stretch)), Int(last(stretch))
+        i_lo = cld(a - 1, step) + 1
+        i_hi = fld(b - window, step) + 1
+        isempty((i_lo+margin):(i_hi-margin)) || push!(spans, (a:b, i_lo, i_hi))
+    end
+    isempty(spans) && throw(
+        ArgumentError(
+            "no stretch between the gaps of the record holds a window after the " *
+            "edge margin of $margin windows.",
+        ),
+    )
+
+    conditioned = Vector{Vector{Vector{Float64}}}(undef, length(channels))
+    descriptions = String[]
+    psd_tables = DataFrame[]
+    for (k, channel) in enumerate(channels)
+        passed = Vector{Vector{Float64}}()
+        for (rows, _, _) in spans
+            y = Vector{Float64}(combinations[channel][rows])
+            if settings.highpass_cutoff_hz > 0
+                y = highpass_record(
+                    y,
+                    fs;
+                    cutoff = settings.highpass_cutoff_hz,
+                    order = settings.highpass_order,
+                )
+            end
+            push!(passed, y)
+        end
+        psd, description, table =
+            stretch_whitening_psd(settings, passed, fs; channel = channel)
+        conditioned[k] =
+            psd === nothing ? passed : [whiten_record(y, fs; psd = psd) for y in passed]
+        push!(descriptions, description)
+        table === nothing || push!(psd_tables, table)
+    end
+    psd_description =
+        length(channels) == 1 ? only(descriptions) :
+        join(("$c: $d" for (c, d) in zip(channels, descriptions)), "; ")
+    psd_table = if isempty(psd_tables)
+        nothing
+    elseif length(channels) == 1
+        only(psd_tables)
+    else
+        DataFrame(
+            :frequency_hz => first(psd_tables).frequency_hz,
+            (Symbol("psd_", c) => t.psd for (c, t) in zip(channels, psd_tables))...,
+        )
+    end
+
+    blocks = Matrix{Float32}[]
+    kept = Int[]
+    stretch_tables = Dict{String,Any}[]
+    for (j, (rows, i_lo, i_hi)) in enumerate(spans)
+        # Skip to the first sample of window i_lo of the record
+        offset = (i_lo - 1) * step - (first(rows) - 1)
+        series = [conditioned[k][j][(offset+1):end] for k in eachindex(channels)]
+        remainder = length(channels) == 1 ? only(series) : reduce(hcat, series)
+        f = window_features(
+            remainder,
+            fs;
+            window_size = window,
+            step_size = step,
+            low_band = settings.low_band_hz,
+            high_band = settings.high_band_hz,
+            band_edges = settings.band_edges_hz,
+            feature_set = settings.feature_set,
+            combination = settings.channel_combination,
+        )
+        size(f, 1) == i_hi - i_lo + 1 || error(
+            "stretch $rows yields $(size(f, 1)) windows; the grid of the record " *
+            "places $(i_hi - i_lo + 1) in it.",
+        )
+        push!(blocks, f[(margin+1):(size(f, 1)-margin), :])
+        windows = (i_lo+margin):(i_hi-margin)
+        append!(kept, windows)
+        push!(
+            stretch_tables,
+            Dict{String,Any}(
+                "first_row" => first(rows),
+                "last_row" => last(rows),
+                "first_window" => first(windows),
+                "n_windows" => length(windows),
+            ),
+        )
+    end
+    features = Matrix{Float32}(reduce(vcat, blocks))
+    @info "record with gaps" stretches = length(stretches) dropped_stretches =
+        length(stretches) - length(spans) n_windows = length(kept)
+    return features, kept, psd_description, psd_table, stretch_tables
+end
+
+"""
+    contiguous_features(settings, combinations, channels, fs, n_record)
+        -> (features, kept, psd_description, psd_table)
+
+Features of a record without gaps: every channel of the mode high-passed
+over the whole record ([`highpass_record`](@ref)) and whitened by its own
+PSD ([`whitening_psd`](@ref)), the windows of the record
+([`window_features`](@ref)), and the edge margin dropped at both ends: the
+circular high-pass and whitening filters ring over a stretch of the record
+at each end (the impulse response of the whitening filter is long when the
+PSD carries sharp features such as the TDI null), so the first and last
+windows are not validly conditioned. Returns the kept feature rows, their
+record window indices (`kept`), and the PSD description and table.
+"""
+function contiguous_features(
+    settings::NamedTuple,
+    combinations::NamedTuple,
+    channels,
+    fs::Real,
+    n_record::Integer,
+)
+    # A zero-phase high-pass below the analysis bands, since the steep
+    # low-frequency noise would otherwise leak into every window through the
+    # taper, and whitening of the whole record by the channel's own PSD so
+    # that the tapered periodogram of every window is unbiased.
+    conditioned = Vector{Vector{Float64}}()
+    descriptions = String[]
+    psd_tables = DataFrame[]
+    for channel in channels
+        series = combinations[channel]
+        if settings.highpass_cutoff_hz > 0
+            series = highpass_record(
+                series,
+                fs;
+                cutoff = settings.highpass_cutoff_hz,
+                order = settings.highpass_order,
+            )
+        end
+        psd, description, table = whitening_psd(settings, series, fs; channel = channel)
+        psd !== nothing && (series = whiten_record(series, fs; psd = psd))
+        push!(conditioned, series)
+        push!(descriptions, description)
+        table === nothing || push!(psd_tables, table)
+    end
+    psd_description =
+        length(channels) == 1 ? only(descriptions) :
+        join(("$c: $d" for (c, d) in zip(channels, descriptions)), "; ")
+    psd_table = if isempty(psd_tables)
+        nothing
+    elseif length(channels) == 1
+        only(psd_tables)
+    else
+        DataFrame(
+            :frequency_hz => first(psd_tables).frequency_hz,
+            (Symbol("psd_", c) => t.psd for (c, t) in zip(channels, psd_tables))...,
+        )
+    end
+    A = length(channels) == 1 ? only(conditioned) : reduce(hcat, conditioned)
+    features = window_features(
+        A,
+        fs;
+        window_size = settings.window_size,
+        step_size = settings.step_size,
+        low_band = settings.low_band_hz,
+        high_band = settings.high_band_hz,
+        band_edges = settings.band_edges_hz,
+        feature_set = settings.feature_set,
+        combination = settings.channel_combination,
+    )
+    margin = edge_margin_windows(settings)
+    2 * margin < n_record || throw(
+        ArgumentError(
+            "edge_margin = $(settings.edge_margin) window lengths drops " *
+            "$(2 * margin) windows, but the record holds only $n_record.",
+        ),
+    )
+    kept = collect((margin+1):(n_record-margin))
+    margin > 0 &&
+        @info "edge margin" edge_margin = settings.edge_margin dropped_each_end = margin first_window =
+            first(kept) n_windows = length(kept)
+    return features[kept, :], kept, psd_description, psd_table
+end
+
+"""
     preprocess_record(config; h5_file = nothing, tdi_group = nothing, label_file = "",
                       output_prefix = nothing, force = false) -> NamedTuple
 
@@ -141,6 +356,17 @@ sections of [`write_toml`](@ref). A point-wise `label_file` (columns
 `<output_prefix>_labels.csv` ([`window_labels`](@ref)); the `"welch"`
 mode also persists the estimated PSD as `<output_prefix>_psd.csv`
 (`frequency_hz`, `psd`; for several channels `psd_A`, `psd_E`).
+
+A record with gaps — samples of X, Y or Z that are not finite — is
+conditioned stretch by stretch between the gaps: every stretch is
+high-passed and whitened on its own, the Welch estimate pooled over the
+stretches ([`stretch_whitening_psd`](@ref)). The windows are those of the
+grid of the record that lie inside a stretch, less the edge margin at both
+ends of every stretch. The sidecar then records `gap_samples` and
+`stretches` (`first_row`, `last_row`, `first_window`, `n_windows` of every
+stretch) under schema 2, and the rows of the tables are no longer
+consecutive windows (`window_indices` of StreamingInference gives the
+window of every row).
 
 Every parameter comes from the `[preprocessing]`, `[paths]`, and
 `[resources]` sections of `config` ([`preprocessing_settings`](@ref),
@@ -253,47 +479,21 @@ function preprocess_record(
             n_windows = window_count(n_points, settings.window_size, settings.step_size)
             @info "record" n_points sample_rate_hz = fs window_size = settings.window_size step_size =
                 settings.step_size n_windows
+            stretches = finite_stretches(tdi.X, tdi.Y, tdi.Z)
+            gapped = !(length(stretches) == 1 && only(stretches) == 1:n_points)
 
-            # Orthogonal channels of the mode; for each, a zero-phase high-pass
-            # below the analysis bands, since the steep low-frequency noise
-            # would otherwise leak into every window through the taper, and
-            # whitening of the whole record by the channel's own PSD so that
-            # the tapered periodogram of every window is unbiased.
+            # Orthogonal channels of the mode, conditioned over the whole record
+            # or, when it has gaps, stretch by stretch between them
             combinations = NamedTuple{(:A, :E, :T)}(tdi_to_aet(tdi.X, tdi.Y, tdi.Z))
-            conditioned = Vector{Vector{Float64}}()
-            descriptions = String[]
-            psd_tables = DataFrame[]
-            for channel in channels
-                series = combinations[channel]
-                if settings.highpass_cutoff_hz > 0
-                    series = highpass_record(
-                        series,
-                        fs;
-                        cutoff = settings.highpass_cutoff_hz,
-                        order = settings.highpass_order,
-                    )
-                end
-                psd, description, table =
-                    whitening_psd(settings, series, fs; channel = channel)
-                psd !== nothing && (series = whiten_record(series, fs; psd = psd))
-                push!(conditioned, series)
-                push!(descriptions, description)
-                table === nothing || push!(psd_tables, table)
-            end
-            psd_description =
-                length(channels) == 1 ? only(descriptions) :
-                join(("$c: $d" for (c, d) in zip(channels, descriptions)), "; ")
-            psd_table = if isempty(psd_tables)
-                nothing
-            elseif length(channels) == 1
-                only(psd_tables)
-            else
-                DataFrame(
-                    :frequency_hz => first(psd_tables).frequency_hz,
-                    (Symbol("psd_", c) => t.psd for (c, t) in zip(channels, psd_tables))...,
+            n_record = n_windows
+            margin = edge_margin_windows(settings)
+            kept_features, kept, psd_description, psd_table, stretch_tables =
+                gapped ? gapped_features(settings, combinations, channels, fs, stretches) :
+                (
+                    contiguous_features(settings, combinations, channels, fs, n_record)...,
+                    Dict{String,Any}[],
                 )
-            end
-            A = length(channels) == 1 ? only(conditioned) : reduce(hcat, conditioned)
+            n_windows = length(kept)
             @info "conditioning" channels = mode highpass_cutoff_hz =
                 settings.highpass_cutoff_hz highpass_order = settings.highpass_order whitening =
                 psd_description feature_set = settings.feature_set
@@ -315,42 +515,12 @@ function preprocess_record(
                     zeros(Float32, n_points)
             end
 
-            features = window_features(
-                A,
-                fs;
-                window_size = settings.window_size,
-                step_size = settings.step_size,
-                low_band = settings.low_band_hz,
-                high_band = settings.high_band_hz,
-                band_edges = settings.band_edges_hz,
-                feature_set = settings.feature_set,
-                combination = settings.channel_combination,
-            )
             column_names = feature_names(
                 settings.feature_set;
                 n_bands = length(settings.band_edges_hz) - 1,
             )
 
-            # Edge margin: the circular high-pass and whitening filters ring
-            # over a stretch of the record at each end (the whitening
-            # filter's impulse response is long when the PSD carries sharp
-            # features such as the TDI null), so the first and last windows
-            # are not validly conditioned and are dropped from the product.
-            n_record = n_windows
-            margin = edge_margin_windows(settings)
-            2 * margin < n_record || throw(
-                ArgumentError(
-                    "edge_margin = $(settings.edge_margin) window lengths drops " *
-                    "$(2 * margin) windows, but the record holds only $n_record.",
-                ),
-            )
-            kept = (margin+1):(n_record-margin)
-            n_windows = length(kept)
-            margin > 0 &&
-                @info "edge margin" edge_margin = settings.edge_margin dropped_each_end =
-                    margin first_window = first(kept) n_windows
-
-            write_csv(features_path, DataFrame(features[kept, :], column_names))
+            write_csv(features_path, DataFrame(kept_features, column_names))
             psd_table !== nothing && write_csv(psd_path, psd_table)
             write_toml(
                 sidecar_path,
@@ -365,6 +535,7 @@ function preprocess_record(
                                 ("labels" => parameters["label_file_sha256"],) : ()
                             )...,
                         ),
+                        schema = gapped ? 2 : 1,
                     ),
                     "features" => Dict{String,Any}(
                         "source" => provenance_path(h5_path),
@@ -396,6 +567,13 @@ function preprocess_record(
                         "first_window" => first(kept),
                         "n_windows_record" => n_record,
                         "n_windows" => n_windows,
+                        (
+                            gapped ?
+                            (
+                                "gap_samples" => n_points - sum(length, stretches),
+                                "stretches" => stretch_tables,
+                            ) : ()
+                        )...,
                         "parameter_hash" => digest,
                     ),
                 );

@@ -20,6 +20,7 @@ using StreamingInference:
     content_digest,
     contiguous_runs,
     feature_names,
+    finite_stretches,
     fixed_spans,
     highpass_record,
     interpolated_psd,

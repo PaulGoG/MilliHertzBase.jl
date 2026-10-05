@@ -176,3 +176,42 @@ function whitening_psd(
         ArgumentError("psd = $(repr(mode)); expected model, channel, ldc, welch, or none."),
     )
 end
+
+"""
+    stretch_whitening_psd(settings, stretches, fs; channel = :A)
+        -> (psd, description, table)
+
+Whitening PSD of a record with gaps, given the stretches between its gaps
+(each high-passed already) of the TDI channel `channel` sampled at `fs`
+[Hz], with the return values of [`whitening_psd`](@ref). For `"welch"` it
+is the median-averaged estimate pooled over the stretches, over segments of
+`welch_segment_length` samples none of which spans a gap, smoothed in
+log-frequency by `psd_smoothing_dex` dex when that is positive; `table`
+holds that estimate (`frequency_hz`, `psd`). The analytic kinds and
+`"none"` do not read the record and are those of [`whitening_psd`](@ref),
+which also refuses an analytic PSD for T.
+"""
+function stretch_whitening_psd(
+    settings::NamedTuple,
+    stretches::AbstractVector{<:AbstractVector{<:Real}},
+    fs::Real;
+    channel::Symbol = :A,
+)
+    if settings.psd == "welch"
+        segment = settings.welch_segment_length
+        freqs, table = welch_psd(stretches, fs; segment_length = segment, average = :median)
+        smoothing = settings.psd_smoothing_dex
+        description =
+            "median Welch estimate pooled over $(length(stretches)) stretches " *
+            "between gaps, segment $segment samples"
+        if smoothing > 0
+            table = smooth_psd(freqs, table, smoothing)
+            description *= ", smoothed by $smoothing dex in log-frequency"
+        end
+        return interpolated_psd(freqs, table),
+        description,
+        DataFrame(frequency_hz = freqs, psd = table)
+    end
+    isempty(stretches) && throw(ArgumentError("no stretch given."))
+    return whitening_psd(settings, first(stretches), fs; channel = channel)
+end
