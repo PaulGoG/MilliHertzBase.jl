@@ -28,7 +28,8 @@ follow [Semantic Versioning](https://semver.org/).
   `label_peak_snr_ae`) from the root of the summed squared window SNRs.
   `"AET"` is accepted by the labelling stage, which sets the three-channel
   onset to the AE onset and says so, and refused by the pre-processing
-  stage until the features of the T channel exist. `whitening_psd` takes
+  stage: no features of the T channel are defined (a veto on its band
+  powers was examined on the LDC-2b records and not adopted). `whitening_psd` takes
   the `channel` and refuses an analytic PSD for T. The mode `"A"` leaves
   every product as it was. For the streamed replay of several channels:
   `channel_record` (the channels of a TDI product in single precision, the

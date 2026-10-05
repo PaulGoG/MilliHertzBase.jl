@@ -130,8 +130,8 @@ feature the value farthest towards a signal among the channels; `"mean"`,
 the features of the channel-averaged periodogram — so their number is that
 of the A mode.
 The mode `"AE"` appends `_ae` to `output_prefix`; the mode `"AET"` is
-refused until the features of the T channel, which carries no
-gravitational-wave signal below about 10 mHz and serves as a veto, exist.
+refused: no features of the T channel are defined (a veto on its band
+powers was examined on records with glitches and not adopted).
 The features are written to
 `<inputs>/<output_prefix>_features.csv` with a TOML sidecar
 `<output_prefix>_features.toml` holding the window geometry, the feature
@@ -171,8 +171,8 @@ function preprocess_record(
         mode = tdi_settings(config).channels
         mode == "AET" && throw(
             ArgumentError(
-                "[tdi] channels = \"AET\": the features of the T channel are not " *
-                "implemented; pre-process in the mode \"A\" or \"AE\".",
+                "[tdi] channels = \"AET\": no features of the T channel are " *
+                "defined; pre-process in the mode \"A\" or \"AE\".",
             ),
         )
         channels = channel_names(mode)

@@ -42,9 +42,12 @@ sidecar (`[product] channels`).
 - `"AET"`: on equal arms T carries no gravitational-wave signal of
   massive-black-hole binaries below about 10 mHz, and its analytic
   equal-arm PSD is wrong below a few mHz, so T is whitened by a measured
-  PSD only and serves as a veto against instrumental artefacts. Its
-  features are not implemented yet: pre-processing refuses the mode, and
-  the labelling stage sets the three-channel onset to the AE onset and
+  PSD only. No features of T are defined. A veto on its band powers
+  against instrumental artefacts was examined on the LDC-2b (Spritz)
+  records and not adopted: on arms of unequal length T responds to the
+  signal below 1 mHz, and at higher frequencies it did not separate the
+  glitches that raise alarms from noise. Pre-processing refuses the mode,
+  and the labelling stage sets the three-channel onset to the AE onset and
   records that it did.
 
 The telemetry producer carries one payload column, the A channel
