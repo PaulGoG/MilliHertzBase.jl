@@ -330,15 +330,17 @@ end
     read_catalog(path; group = "sky/mbhb/cat") -> DataFrame
 
 Source catalogue of an LDC product: the compound dataset at `group` as a
-table, one column per field.
+table, one column per field. The dataset holds an array of entries, one per
+source (`sky/mbhb/cat` of LDC-2a), or a single scalar entry (`sky/cat` of
+the one-source LDC-2b records), which gives a table of one row.
 """
 function read_catalog(path::AbstractString; group::AbstractString = "sky/mbhb/cat")
     isfile(path) || throw(ArgumentError("HDF5 file not found: $path"))
     return h5open(path, "r") do file
         haskey(file, group) ||
             throw(ArgumentError("$path holds no object at $(repr(group))."))
-        rows = vec(read(hdf5_dataset(file, group)))
-        DataFrame(rows)
+        entries = read(hdf5_dataset(file, group))
+        DataFrame(entries isa AbstractArray ? vec(entries) : [entries])
     end
 end
 

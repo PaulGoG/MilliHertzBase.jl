@@ -7,6 +7,8 @@ follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- `read_catalog` reads a scalar compound dataset, the one-source catalogue
+  of an LDC-2b record (`sky/cat`), as a table of one row.
 - First release as a package of its own. The code was the
   gravitational-wave layer of MilliHertzQML.jl (3.0.0-DEV) and keeps its
   history from the commit that separated the layers: the LISA noise model

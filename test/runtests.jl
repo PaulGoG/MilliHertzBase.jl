@@ -255,6 +255,18 @@ end
         @test a.Y == 2.0 .* (1:n) && b.Y == zeros(n)
         table = read_catalog(compound)
         @test nrow(table) == 1 && table.CoalescenceTime[1] == 100.0
+        # A scalar compound dataset (one source, the LDC-2b layout) reads as one row
+        HDF5.h5open(compound, "r+") do f
+            d = HDF5.create_dataset(
+                f,
+                "sky/cat",
+                HDF5.datatype(eltype(cat)),
+                HDF5.dataspace(()),
+            )
+            HDF5.write_dataset(d, HDF5.datatype(eltype(cat)), cat)
+        end
+        scalar = read_catalog(compound; group = "sky/cat")
+        @test nrow(scalar) == 1 && scalar == table
         @test_throws ArgumentError read_tdi(compound; group = "missing")
         @test_throws ArgumentError read_tdi(joinpath(dir, "absent.h5"))
     end
