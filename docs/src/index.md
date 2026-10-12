@@ -13,8 +13,8 @@ DeepSpaceTelemetry producer.
 | Waveforms | IMRPhenomA (Ajith et al. 2008, doi:10.1103/PhysRevD.77.104017): `phenoma_parameters`, `phenoma_spectrum`, `phenoma_series`, `phenoma_waveform`, `phenoma_physical_amplitude`, `phenoma_arrival_delay` |
 | Detector response | `AbstractDetectorResponse`, `SkyAveragedResponse`, `detector_response`; the constellation response `lisa_response` through the CurvatureDistinguishability extension |
 | LDC products | `read_tdi`, `tdi_to_aet`, `read_catalog`, `catalog_events`, `whitening_psd`, `whitening_psd_from_sidecar` |
-| Labels | `windowed_snr`, `snr_peaks`, `detectable_span`, `detectable_spans`, `signal_onsets` |
-| Stages | `generate_telemetry`, `preprocess_record`, `label_truth_stream`, `export_telemetry_payload`, each driven by a TOML configuration (`generation_settings`, `preprocessing_settings`, `ldc_settings`, `telemetry_settings`, `tdi_settings`) |
+| Labels | `windowed_snr`, `whitened_window_snr`, `snr_peaks`, `detectable_span`, `detectable_spans`, `signal_onsets` |
+| Stages | `generate_telemetry`, `preprocess_record`, `label_truth_stream`, `export_telemetry_payload`, each driven by a TOML configuration (`generation_settings`, `preprocessing_settings`, `ldc_settings`, `telemetry_settings`, `tdi_settings`); the labelling scans the truth stream against the analytic TDI noise or, with `[ldc] psd_model = "record"`, against the record's own |
 | Channel modes | `[tdi] channels = "A" \| "AE" \| "AET"` (`tdi_settings`, `channel_names`, `channel_suffix`), recorded in every product; `channel_record`, `mode_events` for the replay of several channels |
 | Extensions | DeepSpaceTelemetry (`open_telemetry_run`: a producer run directory as a StreamingInference run), CurvatureDistinguishability (constellation response), CairoMakie (`figure_mission_trace`, `figure_telemetry_trace`) |
 

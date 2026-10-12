@@ -7,9 +7,11 @@
 Gravitational-wave layer for the analysis of LISA telemetry: the LISA noise
 model and the analytic TDI noise of the LISA Data Challenge, IMRPhenomA
 waveforms of massive black hole binaries, the detector response, readers of
-LDC products, the stages that generate, pre-process, label and export
-records, and an adapter that reads a DeepSpaceTelemetry run as a stream. It
-builds on [StreamingInference.jl](https://github.com/PaulGoG/StreamingInference.jl),
+LDC products (the LDC-2a and LDC-2b layouts, records with gaps), the stages
+that generate, pre-process, label and export records — in the A channel or
+on the A and E network, a record with gaps stretch by stretch, the signal
+onset of every source against the analytic noise or the record's own — and
+an adapter that reads a DeepSpaceTelemetry run as a stream. It builds on [StreamingInference.jl](https://github.com/PaulGoG/StreamingInference.jl),
 which holds the domain-general streaming, conditioning and evaluation code.
 
 I wrote this code as the gravitational-wave layer of
@@ -71,9 +73,12 @@ matched_filter_snr(h, fs; psd = lisa_noise_psd)   # 20.0
 ## Status
 
 Version 0.1.0-DEV, extracted from MilliHertzQML.jl 3.0.0-DEV with its
-history from the separation of the layers; used by MilliHertzQML.jl. The
-analytic TDI noise model is a port of the LDC toolbox (MIT licence, see
-`THIRD_PARTY_NOTICES.md`).
+history from the separation of the layers; used by MilliHertzQML.jl. Added
+since the extraction: the channel modes (`[tdi] channels`), the
+pre-processing of records with gaps, the one-source catalogue of the LDC-2b
+records, and the signal onset against the record's own noise
+(`[ldc] psd_model = "record"`). The analytic TDI noise model is a port of
+the LDC toolbox (MIT licence, see `THIRD_PARTY_NOTICES.md`).
 
 ## How to cite
 
