@@ -263,9 +263,13 @@ end
     ldc_settings(config) -> NamedTuple
 
 Validated `[ldc]` parameters of the truth-stream labelling. `psd_model`
-names an analytic TDI PSD ([`ldc_tdi_psd`](@ref)) or `"record"`, the
-whitening PSD of the observed record `record_file` (empty: the file of the
-truth stream) under the `[preprocessing]` settings.
+is `"record"` (the default): the whitening PSD of the observed record
+`record_file` (empty: the file of the truth stream) under the
+`[preprocessing]` settings, the noise the detector faces; or the name of an
+analytic TDI PSD ([`ldc_tdi_psd`](@ref)), the rule of the releases before
+2026-10-12, whose threshold of 5 against the instrument noise is a
+threshold of about 3 against the record. `label_snr_threshold` defaults to
+3 accordingly.
 """
 function ldc_settings(config::AbstractDict)
     l = section(config, "ldc")
@@ -276,7 +280,7 @@ function ldc_settings(config::AbstractDict)
         record_file = isempty(record_file) ? "" : resolvepath(record_file),
         truth_group = cfgget(l, "truth_group", "sky/mbhb/tdi"; type = String),
         catalog_group = cfgget(l, "catalog_group", "sky/mbhb/cat"; type = String),
-        psd_model = cfgget(l, "psd_model", "sangria"; type = String),
+        psd_model = cfgget(l, "psd_model", "record"; type = String),
         tdi2 = cfgget(l, "tdi2", false; type = Bool),
         observation_years = cfgget(l, "observation_years", 0.0; type = Float64, min = 0.0),
         label_span = cfgget(
@@ -303,7 +307,7 @@ function ldc_settings(config::AbstractDict)
         label_snr_threshold = cfgget(
             l,
             "label_snr_threshold",
-            5.0;
+            3.0;
             type = Float64,
             min = 1e-6,
         ),

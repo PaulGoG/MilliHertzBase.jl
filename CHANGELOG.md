@@ -17,8 +17,15 @@ follow [Semantic Versioning](https://semver.org/).
   `whitened_window_snr`), so that the signal onset is where the detector
   can first see the source against the noise it faces, the Galactic
   foreground included. The analytic rule (`analytic_truth_snr`) is
-  unchanged and remains the default; the snapshot records the PSD of
-  either (`psd_description`, `record_source`).
+  unchanged; the snapshot records the PSD of either (`psd_description`,
+  `record_source`).
+
+### Changed
+- The default labelling rule is the record's own noise at a threshold of
+  3 (`[ldc] psd_model = "record"`, `label_snr_threshold = 3`), in place of
+  the analytic instrument PSD at 5, whose threshold against the noise the
+  detector faces was about 3 for the Sangria blind year and 1–2 at the
+  peak; the analytic rule stays available under its name.
 - `read_catalog` reads a scalar compound dataset, the one-source catalogue
   of an LDC-2b record (`sky/cat`), as a table of one row.
 - First release as a package of its own. The code was the

@@ -28,6 +28,8 @@
                 "results" => joinpath(dir, "results"),
             ),
             "ldc" => Dict{String,Any}(
+                "psd_model" => "sangria",
+                "label_snr_threshold" => 5.0,
                 "label_span" => "fixed",
                 "label_before_sec" => 20_000.0,
                 "label_after_sec" => 2_000.0,

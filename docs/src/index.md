@@ -51,14 +51,17 @@ sidecar (`[product] channels`).
   records that it did.
 
 The signal onset from which alerts are credited is the first window in
-which the truth stream reaches `[ldc] label_snr_threshold`. By default
-the window SNR is the matched filter against the analytic TDI PSD of
-`psd_model`; with `psd_model = "record"` the truth is conditioned as the
+which the truth stream reaches `[ldc] label_snr_threshold`, 3 by default.
+By default (`psd_model = "record"`) the truth is conditioned as the
 pre-processing stage conditions the observed record (`record_file`, else
 the file of the truth stream) — high-passed and whitened by the record's
 own PSD, the Galactic foreground included — and the SNR of a window is
 the norm of the whitened signal in it: the signal as the detector sees
-it, against the noise it faces.
+it, against the noise it faces. With the name of an analytic TDI PSD
+(`"sangria"`, `"spritz"`, …) the window SNR is the matched filter of the
+raw truth against that instrument noise, the rule of the releases before
+2026-10-12, under which a threshold of 5 corresponds to about 3 against
+the record.
 
 A record with gaps — samples marked `NaN`, as in the LDC-2b (Spritz)
 products — is pre-processed stretch by stretch: every stretch between two
