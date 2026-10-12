@@ -50,6 +50,16 @@ sidecar (`[product] channels`).
   and the labelling stage sets the three-channel onset to the AE onset and
   records that it did.
 
+The signal onset from which alerts are credited is the first window in
+which the truth stream reaches `[ldc] label_snr_threshold`. By default
+the window SNR is the matched filter against the analytic TDI PSD of
+`psd_model`; with `psd_model = "record"` the truth is conditioned as the
+pre-processing stage conditions the observed record (`record_file`, else
+the file of the truth stream) — high-passed and whitened by the record's
+own PSD, the Galactic foreground included — and the SNR of a window is
+the norm of the whitened signal in it: the signal as the detector sees
+it, against the noise it faces.
+
 A record with gaps — samples marked `NaN`, as in the LDC-2b (Spritz)
 products — is pre-processed stretch by stretch: every stretch between two
 gaps is high-passed and whitened on its own, the Welch estimate is pooled

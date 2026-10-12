@@ -161,3 +161,90 @@
         )
     end
 end
+
+# The truth conditioned as the detector conditions the record: the window
+# SNR is the norm of the signal whitened by the record's own Welch PSD
+@testset "Labeling stage (record PSD)" begin
+    fs = 0.2
+    n = 60_000
+    centre = 30_000
+    k = 0:(n-1)
+    envelope = exp.(-0.5 .* ((k .- (centre - 1)) ./ 400) .^ 2)
+    s = envelope .* cos.(2π * 5e-3 .* k ./ fs)
+    # White noise against which the whole burst has an SNR of 40; a window of
+    # 1000 samples holds 92 % of its energy
+    σ = sqrt(sum(abs2, s)) / 40
+    rng = StableRNG(7)
+    noise = [σ .* randn(rng, n) for _ in 1:3]
+    mktempdir() do dir
+        truth = joinpath(dir, "truth.csv")
+        CSV.write(
+            truth,
+            DataFrame(t = 5.0 .* k, X = -s ./ sqrt(2), Y = zeros(n), Z = s ./ sqrt(2)),
+        )
+        record = joinpath(dir, "record.h5")
+        HDF5.h5open(record, "w") do f
+            f["obs/tdi"] = [
+                (t = 5.0 * k[i], X = noise[1][i], Y = noise[2][i], Z = noise[3][i]) for
+                i in 1:n
+            ]
+            HDF5.attributes(f["obs/tdi"])["dt"] = 5.0
+        end
+        config = Dict{String,Any}(
+            "paths" => Dict{String,Any}(
+                "inputs" => joinpath(dir, "inputs"),
+                "models" => joinpath(dir, "models"),
+                "plots" => joinpath(dir, "plots"),
+                "results" => joinpath(dir, "results"),
+            ),
+            "preprocessing" => Dict{String,Any}(
+                "psd" => "welch",
+                "welch_segment_length" => 4096,
+                "highpass_cutoff_hz" => 5e-4,
+            ),
+            "ldc" => Dict{String,Any}(
+                "psd_model" => "record",
+                "record_file" => record,
+                "label_before_sec" => 20_000.0,
+                "label_after_sec" => 2_000.0,
+                "label_window_size" => 1000,
+                "label_step" => 10,
+                "output_prefix" => "record",
+            ),
+        )
+        labelled = label_truth_stream(config; truth_csv = truth)
+        merger = labelled.events.merger_index[1]
+        @test nrow(labelled.events) == 1 && abs(merger - centre) <= 20
+        @test isapprox(labelled.events.label_peak_snr[1], sqrt(0.92) * 40; rtol = 0.2)
+        onset = labelled.events.signal_start_index[1]
+        @test merger - 4000 < onset < merger
+        snapshot = TOML.parsefile(labelled.snapshot_path)["labels"]
+        @test snapshot["psd_model"] == "record"
+        @test occursin("median Welch", snapshot["psd_description"]) &&
+              occursin("observed record", snapshot["psd_description"])
+        @test snapshot["record_source"] == "record.h5"
+        # The A and E network: the truth has no E, so the network SNR is that of A
+        ae = deepcopy(config)
+        ae["tdi"] = Dict{String,Any}("channels" => "AE")
+        ae["ldc"]["output_prefix"] = "record_ae"
+        network = label_truth_stream(ae; truth_csv = truth)
+        @test network.events.label_peak_snr_ae[1] ≈ network.events.label_peak_snr[1]
+        @test network.events.signal_start_index_ae[1] ==
+              network.events.signal_start_index[1]
+        # The record is required, and must provide a whitening PSD
+        bare = deepcopy(config)
+        bare["ldc"]["record_file"] = ""
+        @test_throws ArgumentError label_truth_stream(bare; truth_csv = truth)
+        unwhitened = deepcopy(config)
+        unwhitened["preprocessing"]["psd"] = "none"
+        @test_throws ArgumentError label_truth_stream(unwhitened; truth_csv = truth)
+        # The analytic rule records its PSD too
+        analytic = deepcopy(config)
+        analytic["ldc"]["psd_model"] = "sangria"
+        analytic["ldc"]["output_prefix"] = "analytic"
+        plain = label_truth_stream(analytic; truth_csv = truth)
+        snapshot = TOML.parsefile(plain.snapshot_path)["labels"]
+        @test startswith(snapshot["psd_description"], "LDC analytic TDI PSD, model sangria")
+        @test snapshot["record_source"] == ""
+    end
+end

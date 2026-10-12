@@ -7,6 +7,18 @@ follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- The labelling stage scans the truth stream against the record's own
+  noise: `[ldc] psd_model = "record"` conditions the truth as the
+  pre-processing stage conditions the observed record (`[ldc]
+  record_file`, else the file of the truth stream; `--record-file` of the
+  script) — high-passed, whitened by the record's PSD of the configured
+  kind, stretch by stretch between gaps — and takes the norm of the
+  whitened signal in every window as its SNR (`record_truth_snr`,
+  `whitened_window_snr`), so that the signal onset is where the detector
+  can first see the source against the noise it faces, the Galactic
+  foreground included. The analytic rule (`analytic_truth_snr`) is
+  unchanged and remains the default; the snapshot records the PSD of
+  either (`psd_description`, `record_source`).
 - `read_catalog` reads a scalar compound dataset, the one-source catalogue
   of an LDC-2b record (`sky/cat`), as a table of one row.
 - First release as a package of its own. The code was the

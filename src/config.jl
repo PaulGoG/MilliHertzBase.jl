@@ -262,13 +262,18 @@ end
 """
     ldc_settings(config) -> NamedTuple
 
-Validated `[ldc]` parameters of the truth-stream labelling.
+Validated `[ldc]` parameters of the truth-stream labelling. `psd_model`
+names an analytic TDI PSD ([`ldc_tdi_psd`](@ref)) or `"record"`, the
+whitening PSD of the observed record `record_file` (empty: the file of the
+truth stream) under the `[preprocessing]` settings.
 """
 function ldc_settings(config::AbstractDict)
     l = section(config, "ldc")
     h5_file = cfgget(l, "h5_file", ""; type = String)
+    record_file = cfgget(l, "record_file", ""; type = String)
     return (
         h5_file = isempty(h5_file) ? "" : resolvepath(h5_file),
+        record_file = isempty(record_file) ? "" : resolvepath(record_file),
         truth_group = cfgget(l, "truth_group", "sky/mbhb/tdi"; type = String),
         catalog_group = cfgget(l, "catalog_group", "sky/mbhb/cat"; type = String),
         psd_model = cfgget(l, "psd_model", "sangria"; type = String),

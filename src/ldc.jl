@@ -373,6 +373,36 @@ function windowed_snr(
 end
 
 """
+    whitened_window_snr(w; window_size, step) -> (starts, snr)
+
+Optimal SNR of every window of `window_size` samples of the whitened
+series `w` ([`whiten_record`](@ref)) at the window starts
+`1:step:(n - window_size + 1)` of [`windowed_snr`](@ref): the root of the
+summed squares of the window, since whitened noise has unit variance per
+sample. For a signal whitened by the PSD of the record it is added to, it
+is the matched-filter SNR of [`windowed_snr`](@ref) against that PSD, at
+the spectral resolution of the record rather than of the window.
+"""
+function whitened_window_snr(w::AbstractVector{<:Real}; window_size::Integer, step::Integer)
+    window_size >= 2 ||
+        throw(ArgumentError("window_size = $window_size; must be at least 2."))
+    step >= 1 || throw(ArgumentError("step = $step; must be at least 1."))
+    length(w) >= window_size || throw(
+        ArgumentError("the series holds $(length(w)) samples, fewer than window_size."),
+    )
+    starts = 1:step:(length(w)-window_size+1)
+    snr = Vector{Float64}(undef, length(starts))
+    for (i, s) in enumerate(starts)
+        acc = 0.0
+        @inbounds for j in s:(s+window_size-1)
+            acc += abs2(w[j])
+        end
+        snr[i] = sqrt(acc)
+    end
+    return starts, snr
+end
+
+"""
     snr_peaks(starts, snr; threshold, min_separation, precursor_window = 0,
               precursor_ratio = 0.1) -> Vector{Int}
 
