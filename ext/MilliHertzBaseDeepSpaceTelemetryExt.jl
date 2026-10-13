@@ -322,7 +322,20 @@ end
 function arrival_events(run::DeepSpaceTelemetryRun)
     path = joinpath(run.run_dir, "events_rx.csv")
     isfile(path) || return ArrivalEvent[]
-    table = CSV.read(path, DataFrame)
+    # The column types are stated rather than inferred: the inference of the
+    # CSV parser is not part of the producer's file contract (CSV.jl 1.x reads
+    # an ISO instant as a timestamp type of its own), the written form is.
+    table = CSV.read(
+        path,
+        DataFrame;
+        types = Dict(
+            "SimTime" => DateTime,
+            "Batch" => String,
+            "Event" => String,
+            "Attempt" => Int,
+        ),
+        strict = false,
+    )
     nrow(table) == 0 && return ArrivalEvent[]
     for column in ("SimTime", "Batch", "Event", "Attempt")
         column in names(table) || throw(
@@ -331,7 +344,7 @@ function arrival_events(run::DeepSpaceTelemetryRun)
     end
     events = ArrivalEvent[]
     for row in eachrow(table)
-        sim_time = row.SimTime isa DateTime ? row.SimTime : DateTime(String(row.SimTime))
+        sim_time = row.SimTime isa DateTime ? row.SimTime : DateTime(string(row.SimTime))
         attempt =
             row.Attempt isa Integer ? Int(row.Attempt) :
             something(tryparse(Int, string(row.Attempt)), 0)

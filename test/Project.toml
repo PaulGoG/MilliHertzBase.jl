@@ -18,7 +18,7 @@ TOML = "fa267f1f-6049-4f14-aa54-33bafae1ed76"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [sources]
-CurvatureDistinguishability = {rev = "bf82733675f386698bd5966b65e24e8868e1c0be", url = "https://github.com/PaulGoG/CurvatureDistinguishability.jl.git"}
-DeepSpaceTelemetry = {rev = "7af7e4647ace73e2932397cbba33a299249e2495", url = "https://github.com/PaulGoG/DeepSpaceTelemetry.jl.git"}
+CurvatureDistinguishability = {rev = "66a15a133ce09351d00c0df2f02aaac94854369a", url = "https://github.com/PaulGoG/CurvatureDistinguishability.jl.git"}
+DeepSpaceTelemetry = {rev = "48fd43696544e64dff59e8833396531a70b48de0", url = "https://github.com/PaulGoG/DeepSpaceTelemetry.jl.git"}
 MilliHertzBase = {path = ".."}
 StreamingInference = {url = "https://github.com/PaulGoG/StreamingInference.jl.git", rev = "c5e913ffcc3fc1aa197c07ff0f4df2fbb86e5931"}
