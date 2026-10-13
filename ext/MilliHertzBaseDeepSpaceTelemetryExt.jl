@@ -177,6 +177,20 @@ function open_telemetry_run(
     payload_rows =
         provenance isa AbstractDict ? get(provenance, "external_data_rows", 0) : 0
     payload_rows = payload_rows isa Real ? Int(payload_rows) : 0
+    # A producer from 2.6.0 may carry several payload columns under one link
+    # accounting; this extension serves the one-column payload the export
+    # stage writes, so a run with more is refused at the door rather than
+    # read as one concatenated series.
+    columns =
+        provenance isa AbstractDict ? get(provenance, "external_data_columns", []) : []
+    columns isa AbstractVector &&
+        length(columns) > 1 &&
+        throw(
+            ArgumentError(
+                "$run_dir carries the payload columns $(join(string.(columns), ", ")); " *
+                "the extension reads runs of one payload column.",
+            ),
+        )
     geometry = RunGeometry(
         physics["sample_rate"],
         physics["segment_duration_sec"],
@@ -281,9 +295,28 @@ function read_batch(run::DeepSpaceTelemetryRun, name::AbstractString)
     samples = Float32[]
     for f in files
         segment = TelemetryCore.load_segment(joinpath(batch_dir, f))
-        append!(samples, segment.data)
+        append!(samples, segment_samples(segment.data, name))
     end
     return samples
+end
+
+"""
+    segment_samples(data, name) -> AbstractVector{Float32}
+
+The samples of one segment as a vector: the vector a producer before 2.6.0
+loads, or the one column of the samples × columns matrix a producer from
+2.6.0 loads. A segment with several columns belongs to a run the extension
+refuses at `open_telemetry_run`; it is refused here as well.
+"""
+segment_samples(data::AbstractVector, ::AbstractString) = data
+function segment_samples(data::AbstractMatrix, name::AbstractString)
+    size(data, 2) == 1 || throw(
+        ArgumentError(
+            "a segment of batch $name holds $(size(data, 2)) payload columns; " *
+            "the extension reads runs of one payload column.",
+        ),
+    )
+    return vec(data)
 end
 
 function arrival_events(run::DeepSpaceTelemetryRun)

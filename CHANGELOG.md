@@ -21,6 +21,12 @@ follow [Semantic Versioning](https://semver.org/).
   `record_source`).
 
 ### Changed
+- The DeepSpaceTelemetry extension reads the payload column of a segment
+  explicitly — the vector a producer before 2.6.0 loads, or the one column
+  of the samples × columns matrix a producer from 2.6.0 loads — and refuses
+  at `open_telemetry_run` a run that carries several payload columns
+  (`[provenance] external_data_columns`, DeepSpaceTelemetry 2.6.0), which
+  the export stage does not write.
 - The default labelling rule is the record's own noise at a threshold of
   3 (`[ldc] psd_model = "record"`, `label_snr_threshold = 3`), in place of
   the analytic instrument PSD at 5, whose threshold against the noise the

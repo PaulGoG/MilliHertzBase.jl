@@ -210,6 +210,7 @@ end
         source = "external",
         downtime = 0.0,
         origin = nothing,
+        columns = nothing,
         tx = String[],
         components = String[],
     )
@@ -218,6 +219,7 @@ end
         provenance =
             Dict{String,Any}("platform" => Dict{String,Any}("package_version" => version))
         origin === nothing || (provenance["payload_origin"] = origin)
+        columns === nothing || (provenance["external_data_columns"] = columns)
         open(joinpath(dir, "config_snapshot.toml"), "w") do io
             TOML.print(
                 io,
@@ -278,6 +280,14 @@ end
         )
         @test_throws ArgumentError open_telemetry_run(
             fake_run(joinpath(dir, "h"); version = "2.1.1", origin = "2034-12-31T12:00:00"),
+        )
+        # A producer from 2.6.0 may carry several payload columns; the
+        # extension serves one.
+        @test open_telemetry_run(
+            fake_run(joinpath(dir, "j"); version = "2.6.0", columns = ["Amplitude"]),
+        ) isa AbstractTelemetryRun
+        @test_throws ArgumentError open_telemetry_run(
+            fake_run(joinpath(dir, "k"); version = "2.6.0", columns = ["A", "E"]),
         )
         # A stamped payload row sets the rows of a batch and must agree with
         # its content epoch.
