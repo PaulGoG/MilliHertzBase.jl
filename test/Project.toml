@@ -21,4 +21,4 @@ Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 CurvatureDistinguishability = {rev = "66a15a133ce09351d00c0df2f02aaac94854369a", url = "https://github.com/PaulGoG/CurvatureDistinguishability.jl.git"}
 DeepSpaceTelemetry = {rev = "4352f565558d485c8d6cdd624e9ec6f40936aa24", url = "https://github.com/PaulGoG/DeepSpaceTelemetry.jl.git"}
 MilliHertzBase = {path = ".."}
-StreamingInference = {url = "https://github.com/PaulGoG/StreamingInference.jl.git", rev = "d59c63a39193318de347b613218fd7b7fb5a15c1"}
+StreamingInference = {url = "https://github.com/PaulGoG/StreamingInference.jl.git", rev = "eb78e1116f8676387688d2dee035b516482726a4"}
