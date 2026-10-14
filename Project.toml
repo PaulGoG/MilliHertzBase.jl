@@ -27,7 +27,7 @@ MilliHertzBaseCurvatureDistinguishabilityExt = "CurvatureDistinguishability"
 MilliHertzBaseDeepSpaceTelemetryExt = "DeepSpaceTelemetry"
 
 [sources]
-StreamingInference = {url = "https://github.com/PaulGoG/StreamingInference.jl.git", rev = "c5e913ffcc3fc1aa197c07ff0f4df2fbb86e5931"}
+StreamingInference = {url = "https://github.com/PaulGoG/StreamingInference.jl.git", rev = "42a2c2c74b725ca177d6da4fd4c384e4b714671d"}
 
 [compat]
 CSV = "0.10, 1.1"
