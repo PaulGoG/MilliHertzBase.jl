@@ -131,6 +131,38 @@
             @test payload_meta["n_batches"] == 30
         end
 
+        @testset "Payload of the A and E network" begin
+            result =
+                export_telemetry_payload(config; catalog = catalog_path, channels = "AE")
+            @test result.payload_path == joinpath(dir, "inputs", "unit_ae_payload.csv")
+            @test result.columns == ["A", "E"]
+            payload = CSV.read(result.payload_path, DataFrame; types = Float32)
+            @test names(payload) == ["A", "E"] && nrow(payload) == n
+            A, E, _ = tdi_to_aet(X, zeros(n), Z)
+            @test payload.A == Float32.(A) && payload.E == Float32.(E)
+            scenario = TOML.parsefile(result.scenario_path)
+            @test scenario["physics"]["external_data_columns"] == ["A", "E"]
+            @test scenario["payload"]["channels"] == "AE"
+            @test scenario["payload"]["columns"] == ["A", "E"]
+            # The mode of the configuration is the default; the A channel keeps
+            # the producer's one default column
+            ae_config = deepcopy(config)
+            ae_config["tdi"] = Dict{String,Any}("channels" => "AE")
+            @test export_telemetry_payload(ae_config; output_prefix = "unit_mode").columns ==
+                  ["A", "E"]
+            a_only = export_telemetry_payload(
+                ae_config;
+                output_prefix = "unit_a",
+                channels = "A",
+            )
+            @test a_only.columns == ["Amplitude"]
+            @test !haskey(
+                TOML.parsefile(a_only.scenario_path)["physics"],
+                "external_data_columns",
+            )
+            @test_throws ArgumentError export_telemetry_payload(config; channels = "XY")
+        end
+
         @testset "LDC event table and millisecond markers" begin
             ldc_catalog = joinpath(dir, "ldc_events.csv")
             CSV.write(

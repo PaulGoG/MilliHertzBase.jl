@@ -19,14 +19,24 @@ follow [Semantic Versioning](https://semver.org/).
   foreground included. The analytic rule (`analytic_truth_snr`) is
   unchanged; the snapshot records the PSD of either (`psd_description`,
   `record_source`).
+- The payload export follows the channel mode (`channels`, default
+  `[tdi] channels`): the A channel stays the producer's one `Amplitude`
+  column, and the A and E network (`"AE"`, likewise `"AET"`) is written as
+  named columns `A`, `E` of `<prefix>_ae_payload.csv` with
+  `external_data_columns` in the scenario fragment, which DeepSpaceTelemetry
+  2.6 or later carries as one payload under one link accounting — one
+  batch, one transfer, one loss for both channels. The fragment records
+  the mode and the columns under `[payload]`; the stage returns `columns`.
 
 ### Changed
-- The DeepSpaceTelemetry extension reads the payload column of a segment
-  explicitly — the vector a producer before 2.6.0 loads, or the one column
-  of the samples × columns matrix a producer from 2.6.0 loads — and refuses
-  at `open_telemetry_run` a run that carries several payload columns
-  (`[provenance] external_data_columns`, DeepSpaceTelemetry 2.6.0), which
-  the export stage does not write.
+- The DeepSpaceTelemetry extension has moved to StreamingInference.jl,
+  since reading a producer run is not specific to gravitational waves:
+  `open_telemetry_run` is StreamingInference's, re-exported here, built on
+  the producer's reference run adapter (DeepSpaceTelemetry 2.6 or later),
+  and serves the payload columns of a run that carries several by name
+  (`columns`). DeepSpaceTelemetry is no longer a weak dependency of this
+  package; its test environment keeps it for the export tests against the
+  producer.
 - The default labelling rule is the record's own noise at a threshold of
   3 (`[ldc] psd_model = "record"`, `label_snr_threshold = 3`), in place of
   the analytic instrument PSD at 5, whose threshold against the noise the

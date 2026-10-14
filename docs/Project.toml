@@ -6,7 +6,7 @@ StreamingInference = "16c4c904-5ec2-451a-8da3-97d89c4aed49"
 
 [sources]
 MilliHertzBase = {path = ".."}
-StreamingInference = {rev = "42a2c2c74b725ca177d6da4fd4c384e4b714671d", url = "https://github.com/PaulGoG/StreamingInference.jl.git"}
+StreamingInference = {rev = "45df6001bc7a070e1b755d7428941ed859656fbe", url = "https://github.com/PaulGoG/StreamingInference.jl.git"}
 
 [compat]
 Documenter = "1"

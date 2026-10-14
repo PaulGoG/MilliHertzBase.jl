@@ -19,15 +19,13 @@ TimerOutputs = "a759f4b9-e2f1-59dc-863e-4aeb61b1ea8f"
 [weakdeps]
 CairoMakie = "13f3f980-e62b-5c42-98c6-ff1f3baf88f0"
 CurvatureDistinguishability = "023135ff-521e-423d-a4c9-75a9bc432dee"
-DeepSpaceTelemetry = "d178d3ae-5836-4a75-9bfd-2e34bfeccb6b"
 
 [extensions]
 MilliHertzBaseCairoMakieExt = "CairoMakie"
 MilliHertzBaseCurvatureDistinguishabilityExt = "CurvatureDistinguishability"
-MilliHertzBaseDeepSpaceTelemetryExt = "DeepSpaceTelemetry"
 
 [sources]
-StreamingInference = {url = "https://github.com/PaulGoG/StreamingInference.jl.git", rev = "42a2c2c74b725ca177d6da4fd4c384e4b714671d"}
+StreamingInference = {url = "https://github.com/PaulGoG/StreamingInference.jl.git", rev = "45df6001bc7a070e1b755d7428941ed859656fbe"}
 
 [compat]
 CSV = "0.10, 1.1"
@@ -35,7 +33,6 @@ CairoMakie = "0.15"
 CurvatureDistinguishability = "1, 2"
 DataFrames = "1"
 Dates = "1"
-DeepSpaceTelemetry = "1, 2"
 DrWatson = "2.19"
 FFTW = "1"
 HDF5 = "0.17"

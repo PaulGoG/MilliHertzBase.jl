@@ -4,7 +4,7 @@ Gravitational-wave layer for the analysis of LISA telemetry, built on the
 domain-general [StreamingInference.jl](https://github.com/PaulGoG/StreamingInference.jl):
 noise models, waveforms and detector response for massive black hole
 binaries, the products of the LISA Data Challenge, the pipeline stages that
-turn them into labelled, whitened records, and the coupling to the
+turn them into labelled, whitened records, and the payload of the
 DeepSpaceTelemetry producer.
 
 | Part | Contents |
@@ -16,7 +16,8 @@ DeepSpaceTelemetry producer.
 | Labels | `windowed_snr`, `whitened_window_snr`, `snr_peaks`, `detectable_span`, `detectable_spans`, `signal_onsets` |
 | Stages | `generate_telemetry`, `preprocess_record`, `label_truth_stream`, `export_telemetry_payload`, each driven by a TOML configuration (`generation_settings`, `preprocessing_settings`, `ldc_settings`, `telemetry_settings`, `tdi_settings`); the labelling scans the truth stream against the analytic TDI noise or, with `[ldc] psd_model = "record"`, against the record's own |
 | Channel modes | `[tdi] channels = "A" \| "AE" \| "AET"` (`tdi_settings`, `channel_names`, `channel_suffix`), recorded in every product; `channel_record`, `mode_events` for the replay of several channels |
-| Extensions | DeepSpaceTelemetry (`open_telemetry_run`: a producer run directory as a StreamingInference run), CurvatureDistinguishability (constellation response), CairoMakie (`figure_mission_trace`, `figure_telemetry_trace`) |
+| Telemetry producer | `export_telemetry_payload`: the A channel as one `Amplitude` column, or the A and E network as two named columns under one link accounting (DeepSpaceTelemetry 2.6 or later); the runs are read by StreamingInference's DeepSpaceTelemetry extension (`open_telemetry_run`, re-exported, `columns` selecting the payload columns) |
+| Extensions | CurvatureDistinguishability (constellation response), CairoMakie (`figure_mission_trace`, `figure_telemetry_trace`) |
 
 ## Channel modes
 
@@ -73,14 +74,18 @@ the stretches (`stretches`, with `gap_samples`, under schema 2), and
 `window_indices` of StreamingInference.jl gives the record window of every
 row.
 
-The telemetry producer carries one payload column, the A channel
-([`export_telemetry_payload`](@ref)). A streamed replay of several channels
-takes the delivery of such a mission and serves the channels of every
-delivered batch from the TDI record itself ([`channel_record`](@ref) through
-StreamingInference's `ScheduledRecordRun`, which refuses a record whose A
-channel is not the payload the mission carried): the delivery of a batch is
-taken to be common to its channels, and the link of the mission was sized
-for one. [`whitening_psd_from_sidecar`](@ref) returns one PSD per channel
+The payload of the telemetry producer ([`export_telemetry_payload`](@ref))
+follows the channel mode: the A channel as one column, or the A and E
+channels as two named columns that the producer (DeepSpaceTelemetry 2.6 or
+later) carries as one payload, so that the delivery of a batch is common
+to its channels by construction and a replay reads both from the run
+(`open_telemetry_run(run_dir; columns = ["A", "E"])`). A mission that
+carried the A channel alone is replayed on several channels by serving the
+channels of every delivered batch from the TDI record itself
+([`channel_record`](@ref) through StreamingInference's
+`ScheduledRecordRun`, which refuses a record whose A channel is not the
+payload the mission carried): the delivery of a batch is then taken to be
+common to its channels, and the link of the mission was sized for one. [`whitening_psd_from_sidecar`](@ref) returns one PSD per channel
 for a multichannel product, and [`mode_events`](@ref) the event table with
 the onset of the channel set a detector reads.
 

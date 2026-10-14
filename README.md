@@ -21,7 +21,8 @@ black hole binaries, and nothing of the detection method. It holds
   records, on the A channel or on the A and E network, a record with gaps
   stretch by stretch, with the signal onset of every source measured
   against the analytic noise or against the record's own;
-- an adapter that reads a DeepSpaceTelemetry run as a stream.
+- the payload of the DeepSpaceTelemetry producer: the A channel, or the A
+  and E network as two columns of one payload.
 
 It builds on
 [StreamingInference.jl](https://github.com/PaulGoG/StreamingInference.jl),
@@ -43,7 +44,7 @@ MilliHertzBase.jl/
 │   ├── response.jl             # detector response
 │   ├── ldc.jl                  # LDC products, TDI channels, analytic TDI noise
 │   └── stages/                 # generation, pre-processing, labelling, payload export
-├── ext/                        # DeepSpaceTelemetry, CurvatureDistinguishability and CairoMakie extensions
+├── ext/                        # CurvatureDistinguishability and CairoMakie extensions
 ├── test/                       # suite with static QA, own environment
 └── docs/                       # Documenter manual, own environment
 ```
@@ -62,12 +63,13 @@ Pkg.add(url = "https://github.com/PaulGoG/MilliHertzBase.jl")
 ```
 
 StreamingInference.jl comes with it, from the commit recorded in
-`Project.toml`. The extensions for
-[DeepSpaceTelemetry.jl](https://github.com/PaulGoG/DeepSpaceTelemetry.jl)
-(a producer run read as a stream) and
+`Project.toml`. The extension for
 [CurvatureDistinguishability.jl](https://github.com/PaulGoG/CurvatureDistinguishability.jl)
-(the constellation response) load when those packages, unregistered too,
-are added by URL; the figures need `CairoMakie` in the same environment.
+(the constellation response) loads when that package, unregistered too,
+is added by URL, and runs of
+[DeepSpaceTelemetry.jl](https://github.com/PaulGoG/DeepSpaceTelemetry.jl)
+open once it is added the same way; the figures need `CairoMakie` in the
+same environment.
 If your git configuration rewrites GitHub URLs to SSH, set
 `JULIA_PKG_USE_CLI_GIT=true` so that Pkg clones through the git command
 line.
@@ -103,6 +105,20 @@ record = synthesize_noise(Xoshiro(1), length(h), fs; psd = lisa_noise_psd, f_min
 matched_filter_snr(h, fs; psd = lisa_noise_psd)   # 20.0
 ```
 
+## Telemetry producer
+
+The export stage writes the payload the DeepSpaceTelemetry producer
+ingests: the A channel as its one `Amplitude` column, or under
+`[tdi] channels = "AE"` the A and E channels as two named columns, which
+the producer (2.6 or later) carries as one payload under one link
+accounting — one batch, one transfer, one loss for both. Reading a run of
+the producer back is not specific to gravitational waves, so it lives in
+StreamingInference.jl, whose DeepSpaceTelemetry extension builds on the
+producer's reference run adapter; `open_telemetry_run` is re-exported
+here, and its `columns` keyword selects the payload columns of a run that
+carries several. A replay of a one-column mission on the A and E network
+takes E from the TDI record (`ScheduledRecordRun`).
+
 ## Status
 
 No release yet: version 0.1.0-DEV on `main`, which MilliHertzQML.jl pins
@@ -134,15 +150,13 @@ MilliHertzBase.jl/
 │   ├── waveforms.jl            # IMRPhenomA amplitude, phase, spectrum, time series
 │   ├── ldc.jl                  # LDC readers, TDI to A/E/T, analytic TDI and confusion noise
 │   ├── whitening.jl            # Whitening PSD of a record and from a feature sidecar
-│   ├── telemetry.jl            # Telemetry interface of this layer (open_telemetry_run)
 │   ├── visualization.jl        # Figure interface of this layer
 │   └── stages/
 │       ├── generation.jl       # Simulated telemetry with injected binaries
 │       ├── preprocessing.jl    # Whitened band features of an LDC product
 │       ├── labeling.jl         # Truth labels and signal onsets
-│       └── export_payload.jl   # DeepSpaceTelemetry payload of an LDC product
+│       └── export_payload.jl   # DeepSpaceTelemetry payload of an LDC product (A, or A and E)
 ├── ext/
-│   ├── MilliHertzBaseDeepSpaceTelemetryExt.jl           # Producer run directory as a StreamingInference run
 │   ├── MilliHertzBaseCurvatureDistinguishabilityExt.jl  # Constellation response
 │   └── MilliHertzBaseCairoMakieExt.jl                   # Mission and strain traces
 ├── test/

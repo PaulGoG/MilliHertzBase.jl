@@ -5,8 +5,9 @@ Gravitational-wave layer of the pipeline, on the domain-general
 [`StreamingInference`](@ref) layer: the LISA noise model and detector
 response, IMRPhenomA waveforms, LDC products and TDI channels, the
 whitening PSD of a TDI record, the generation, pre-processing, labelling
-and payload-export stages, and the coupling to the DeepSpaceTelemetry
-producer.
+and payload-export stages, and the payload export to the DeepSpaceTelemetry
+producer, whose runs StreamingInference reads ([`open_telemetry_run`](@ref),
+re-exported).
 """
 module MilliHertzBase
 
@@ -26,6 +27,7 @@ using StreamingInference:
     interpolated_psd,
     matched_filter_snr,
     new_run_id,
+    open_telemetry_run,
     override,
     parameter_digest,
     pipeline_paths,
@@ -83,7 +85,6 @@ include("response.jl")
 include("waveforms.jl")
 include("ldc.jl")
 include("whitening.jl")
-include("telemetry.jl")
 include("visualization.jl")
 include("stages/generation.jl")
 include("stages/preprocessing.jl")

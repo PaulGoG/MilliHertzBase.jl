@@ -74,19 +74,27 @@ end
 
 """
     export_telemetry_payload(config; h5_file = nothing, tdi_group = nothing,
-                             catalog = nothing, output_prefix = nothing) -> NamedTuple
+                             catalog = nothing, output_prefix = nothing,
+                             channels = nothing) -> NamedTuple
 
 Payload-export stage of the telemetry coupling. The Michelson variables of
 the HDF5 TDI product `h5_file` (default `[preprocessing] h5_file`) at
 `tdi_group` (default `[preprocessing] tdi_group`; [`read_tdi`](@ref)) are
-combined into the A channel ([`tdi_to_aet`](@ref)), which is written in
-single precision as the one-column (`Amplitude`) CSV
-`<inputs>/<output_prefix>_payload.csv` that the telemetry producer ingests
-gaplessly. Beside it, `<output_prefix>_scenario.toml` holds the scenario
-fragment of the producer's external-data mode: `[physics]` with
-`data_source = "external"`, the payload path relative to the package root,
-the sampling frequency of the file, and the `segment_duration_sec` and
-`batch_size` of [`telemetry_settings`](@ref); `[simulation]` with
+combined into the channels of the mode `channels` (default `[tdi]
+channels`; [`channel_names`](@ref), [`tdi_to_aet`](@ref)), which are
+written in single precision as the CSV
+`<inputs>/<output_prefix><suffix>_payload.csv` that the telemetry producer
+ingests gaplessly, with the suffix of the mode ([`channel_suffix`](@ref)):
+the A channel as the one column `Amplitude`, as the producer reads a
+payload by default, and several channels as columns named `A`, `E`
+(and `T`), which the producer (DeepSpaceTelemetry 2.6 or later) carries as
+one payload under one link accounting — one batch, one transfer, one loss
+for all of them. Beside it, `<output_prefix><suffix>_scenario.toml` holds
+the scenario fragment of the producer's external-data mode: `[physics]`
+with `data_source = "external"`, the payload path relative to the package
+root, the sampling frequency of the file, the `segment_duration_sec` and
+`batch_size` of [`telemetry_settings`](@ref), and for several channels
+`external_data_columns`, their names; `[simulation]` with
 `start_sim_time`; `[[events.markers]]` with one `{time, label = "mbhb_<id>"}`
 entry per event of `catalog` — the simulator catalogue (`event_id`,
 `t_c_sec`) or the LDC event table (`event`, `merger_time_s`;
@@ -95,7 +103,8 @@ measured from the first record sample, rounded to the millisecond;
 `[[labels]]` with the `label_start_index`/`label_end_index` span of every
 event when the catalogue carries them (a span with start > end is empty), so
 that the consumer can rebuild the point-wise labels; and `[payload]` with
-the source, group, row count, catalog, and batch geometry. The hardware and
+the source, group, channel mode, column names, row count, catalog, and
+batch geometry. The hardware and
 git provenance of [`write_toml`](@ref) is merged in. Without a catalogue the
 marker array is empty and no label array is written.
 
@@ -109,8 +118,9 @@ against `[resources]` ([`check_memory`](@ref)). Timed under `TIMER` as
 `"payload export"`.
 
 Returns `(; payload_path, scenario_path, n_rows, sample_rate,
-start_sim_time, markers)` with `markers` a vector of
-`(label, time::DateTime)` tuples.
+start_sim_time, markers, columns)` with `markers` a vector of
+`(label, time::DateTime)` tuples and `columns` the column names of the
+payload.
 """
 function export_telemetry_payload(
     config::AbstractDict;
@@ -118,13 +128,17 @@ function export_telemetry_payload(
     tdi_group::Union{Nothing,AbstractString} = nothing,
     catalog::Union{Nothing,AbstractString} = nothing,
     output_prefix::Union{Nothing,AbstractString} = nothing,
+    channels::Union{Nothing,AbstractString} = nothing,
 )
     @timeit TIMER "payload export" begin
         settings = telemetry_settings(config)
         pre = preprocessing_settings(config)
         source = resolvepath(override(h5_file, pre.h5_file))
         group = String(override(tdi_group, pre.tdi_group))
-        prefix = String(override(output_prefix, settings.output_prefix))
+        mode = String(override(channels, tdi_settings(config).channels))
+        channel_set = channel_names(mode)
+        prefix =
+            String(override(output_prefix, settings.output_prefix)) * channel_suffix(mode)
         catalog_path = catalog === nothing ? nothing : resolvepath(catalog)
         catalog_path === nothing ||
             isfile(catalog_path) ||
@@ -139,7 +153,15 @@ function export_telemetry_payload(
             resource_settings(config);
             stage = "payload export",
         )
-        A, _, _ = tdi_to_aet(tdi.X, tdi.Y, tdi.Z)
+        A, E, T = tdi_to_aet(tdi.X, tdi.Y, tdi.Z)
+        # One `Amplitude` column for the A channel, the producer's default
+        # payload; named columns for several channels
+        series = (A = A, E = E, T = T)
+        columns =
+            length(channel_set) == 1 ? ["Amplitude"] : [String(c) for c in channel_set]
+        payload_table = DataFrame([
+            column => Float32.(series[c]) for (column, c) in zip(columns, channel_set)
+        ],)
         rows_per_batch = samples_per_batch(
             sample_rate,
             settings.segment_duration_sec,
@@ -200,7 +222,7 @@ function export_telemetry_payload(
                 events.spans !== nothing
         end
 
-        # Persist: single-column payload, scenario fragment with provenance
+        # Persist: payload, scenario fragment with provenance
         out_dir = pipeline_paths(config).inputs
         payload_path = joinpath(out_dir, "$(prefix)_payload.csv")
         scenario_path = joinpath(out_dir, "$(prefix)_scenario.toml")
@@ -213,15 +235,17 @@ function export_telemetry_payload(
                     ),
                 )
         end
-        write_csv(payload_path, DataFrame(Amplitude = Float32.(A)))
+        write_csv(payload_path, payload_table)
+        physics = Dict{String,Any}(
+            "data_source" => "external",
+            "external_data_path" => rootrelative(payload_path),
+            "sample_rate" => sample_rate,
+            "segment_duration_sec" => settings.segment_duration_sec,
+            "batch_size" => settings.batch_size,
+        )
+        length(columns) > 1 && (physics["external_data_columns"] = columns)
         scenario = Dict{String,Any}(
-            "physics" => Dict{String,Any}(
-                "data_source" => "external",
-                "external_data_path" => rootrelative(payload_path),
-                "sample_rate" => sample_rate,
-                "segment_duration_sec" => settings.segment_duration_sec,
-                "batch_size" => settings.batch_size,
-            ),
+            "physics" => physics,
             "simulation" =>
                 Dict{String,Any}("start_sim_time" => string(settings.start_sim_time)),
             "events" => Dict{String,Any}(
@@ -232,6 +256,8 @@ function export_telemetry_payload(
             "payload" => Dict{String,Any}(
                 "source" => provenance_path(source),
                 "tdi_group" => group,
+                "channels" => mode,
+                "columns" => columns,
                 "n_rows" => n_rows,
                 "catalog" =>
                     catalog_path === nothing ? "" : provenance_path(catalog_path),
@@ -241,7 +267,7 @@ function export_telemetry_payload(
         )
         label_entries === nothing || (scenario["labels"] = label_entries)
         write_toml(scenario_path, scenario; tag = true)
-        @info "payload written" payload_path scenario_path n_rows n_markers =
+        @info "payload written" payload_path scenario_path n_rows columns n_markers =
             length(markers)
 
         (
@@ -251,6 +277,7 @@ function export_telemetry_payload(
             sample_rate = sample_rate,
             start_sim_time = settings.start_sim_time,
             markers = markers,
+            columns = columns,
         )
     end
 end

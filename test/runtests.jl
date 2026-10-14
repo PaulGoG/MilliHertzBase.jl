@@ -42,21 +42,11 @@ end
     ) === nothing
     @test ExplicitImports.check_all_qualified_accesses_via_owners(MilliHertzBase) ===
           nothing
-    # `CSV.read`, the HDF5 object types and the readers of the producer's
-    # file contract are the documented interfaces of those packages, which
-    # declare no public names beyond their exports
+    # `CSV.read` and the HDF5 object types are the documented interfaces of
+    # those packages, which declare no public names beyond their exports
     @test ExplicitImports.check_all_qualified_accesses_are_public(
         MilliHertzBase;
-        ignore = (
-            :read,
-            :File,
-            :Group,
-            :Dataset,
-            :filename,
-            :load_run_config,
-            :load_segment,
-            :read_batch_metadata,
-        ),
+        ignore = (:read, :File, :Group, :Dataset, :filename),
     ) === nothing
     @test ExplicitImports.check_no_self_qualified_accesses(MilliHertzBase) === nothing
 end
