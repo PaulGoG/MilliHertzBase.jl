@@ -469,6 +469,20 @@ end
     @test_throws ArgumentError telemetry_settings(
         Dict{String,Any}("telemetry" => Dict{String,Any}("alert_persistence" => 0)),
     )
+    # The confirmation tier: 0 by default; otherwise above the persistence
+    # and the overlap of the default windows (1000 every 100)
+    @test telemetry_settings(empty).alert_confirmation_persistence == 0
+    confirm(n) = Dict{String,Any}(
+        "telemetry" => Dict{String,Any}("alert_confirmation_persistence" => n),
+    )
+    @test telemetry_settings(confirm(11)).alert_confirmation_persistence == 11
+    @test_throws ArgumentError telemetry_settings(confirm(10))
+    @test_throws ArgumentError telemetry_settings(confirm(-1))
+    wide = confirm(5)
+    wide["preprocessing"] = Dict{String,Any}("window_size" => 1000, "step_size" => 250)
+    @test telemetry_settings(wide).alert_confirmation_persistence == 5
+    wide["telemetry"]["alert_persistence"] = 5
+    @test_throws ArgumentError telemetry_settings(wide)
 end
 
 @testset "Product identity (pre-processing)" begin

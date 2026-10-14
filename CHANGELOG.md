@@ -7,6 +7,12 @@ follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- `[telemetry] alert_confirmation_persistence` (`telemetry_settings`): 0,
+  no confirmation tier, or a number of consecutive alarmed windows that
+  confirms an alert, above both `alert_persistence` and the overlap
+  `window_size ÷ step_size` of the `[preprocessing]` windows; the replay
+  passes it to `alert_latency_table` of StreamingInference (pinned at
+  `d59c63a`, which adds the tier).
 - The labelling stage scans the truth stream against the record's own
   noise: `[ldc] psd_model = "record"` conditions the truth as the
   pre-processing stage conditions the observed record (`[ldc]

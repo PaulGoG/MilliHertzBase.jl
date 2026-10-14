@@ -349,7 +349,12 @@ run: the exported scenario geometry (`segment_duration_sec`, `batch_size`,
 `context_windows`, `psd_sidecar`, `psd_mode`, `psd_trailing_days`,
 `psd_refresh_days`, `psd_segment_length`, `psd_edge_periods`, `poll_interval_sec`,
 `producer_compat`, `processing_latency_hours`, `alert_persistence`,
-`alert_crediting`, `events_csv`).
+`alert_confirmation_persistence`, `alert_crediting`, `events_csv`).
+
+`alert_confirmation_persistence` is 0 (no confirmation tier) or exceeds
+both `alert_persistence` and the overlap `window_size ÷ step_size` of the
+`[preprocessing]` windows, so that a confirmed alert rests on alarms of
+windows sharing no sample (`alert_latency_table` of StreamingInference).
 """
 function telemetry_settings(config::AbstractDict)
     t = section(config, "telemetry")
@@ -363,6 +368,19 @@ function telemetry_settings(config::AbstractDict)
     run_dir = cfgget(t, "run_dir", ""; type = String)
     events_csv = cfgget(t, "events_csv", ""; type = String)
     psd_sidecar = cfgget(t, "psd_sidecar", ""; type = String)
+    alert_persistence = cfgget(t, "alert_persistence", 3; type = Int, min = 1)
+    confirmation = cfgget(t, "alert_confirmation_persistence", 0; type = Int, min = 0)
+    if confirmation != 0
+        geometry = preprocessing_settings(config)
+        overlap = geometry.window_size ÷ geometry.step_size
+        confirmation > max(alert_persistence, overlap) || throw(
+            ArgumentError(
+                "configuration key `alert_confirmation_persistence` = $confirmation must be 0 " *
+                "or exceed both `alert_persistence` = $alert_persistence and the window " *
+                "overlap window_size ÷ step_size = $overlap.",
+            ),
+        )
+    end
     return (
         segment_duration_sec = cfgget(
             t,
@@ -402,7 +420,8 @@ function telemetry_settings(config::AbstractDict)
             type = Float64,
             min = 0.0,
         ),
-        alert_persistence = cfgget(t, "alert_persistence", 3; type = Int, min = 1),
+        alert_persistence = alert_persistence,
+        alert_confirmation_persistence = confirmation,
         alert_crediting = cfgget(
             t,
             "alert_crediting",
