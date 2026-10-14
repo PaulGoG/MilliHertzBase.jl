@@ -120,9 +120,14 @@ end
         pair_run = open_telemetry_run(pair_dir; columns = ["A", "E"])
         geometry = run_geometry(run)
         @test geometry.start_sim_time == start && geometry.payload_rows == n
-        @test run_descriptor(run)["mode"] == "tick"
-        # The producer records the commit of a copy installed by commit (2.6.1)
-        @test occursin(r"^[0-9a-f]{40}$", run_descriptor(run)["git_commit"])
+        descriptor = run_descriptor(run)
+        @test descriptor["mode"] == "tick"
+        # The producer's identity of its code (2.6.1): the tree hash and the
+        # dirty flag key it, the commit is recorded for a copy installed by
+        # commit, as this environment pins it
+        @test occursin(r"^[0-9a-f]{40}$", descriptor["git_tree_sha1"])
+        @test descriptor["git_dirty"] == false
+        @test occursin(r"^[0-9a-f]{40}$", descriptor["git_commit"])
         delivered = filter(b -> b.state == :ground, list_batches(run))
         b = first(delivered)
         @test read_batch(run, b.name) == record[b.rows, 1]
