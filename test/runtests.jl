@@ -261,7 +261,8 @@ end
         HDF5.h5open(compound, "r+") do f
             f["instnoise/tdi"] =
                 [(t = t[i], X = 0.5 * i, Y = 0.25 * i, Z = 0.125 * i) for i in 1:n]
-            HDF5.attributes(f["instnoise/tdi"])["dt"] = 5.0
+            # The one-element array attribute of the LDC-1b streams
+            HDF5.attributes(f["instnoise/tdi"])["dt"] = [5.0]
             # Integer time samples and step, one sample shorter
             f["noise/conf"] =
                 [(t = Int64(t[i]), X = 1.0, Y = 2.0, Z = 3.0) for i in 1:(n-1)]

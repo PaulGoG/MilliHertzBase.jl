@@ -288,43 +288,41 @@ function read_tdi(
     return h5open(path, "r") do file
         group isa AbstractString && return read_tdi_object(file, group, path)
         isempty(group) && throw(ArgumentError("no TDI components named for $path."))
-        components = [read_tdi_object(file, g, path) for g in group]
-        c₁ = first(components)
-        for (k, cₖ) in enumerate(components)
-            isapprox(cₖ.dt, c₁.dt; rtol = 1e-9) || throw(
+        # One component in memory at a time beside the running sum: the
+        # streams of a two-year record are hundreds of megabytes each
+        first_component = read_tdi_object(file, group[1], path)
+        t, dt = first_component.t, first_component.dt
+        X, Y, Z = first_component.X, first_component.Y, first_component.Z
+        n = length(t)
+        lengths = Dict{String,Int}(String(group[1]) => n)
+        for k in 2:length(group)
+            c = read_tdi_object(file, group[k], path)
+            isapprox(c.dt, dt; rtol = 1e-9) || throw(
                 ArgumentError(
                     "TDI component $(repr(group[k])) of $path is sampled at " *
-                    "$(cₖ.dt) s, component $(repr(group[1])) at $(c₁.dt) s.",
+                    "$(c.dt) s, component $(repr(group[1])) at $dt s.",
                 ),
             )
-        end
-        n = minimum(length(c.t) for c in components)
-        if any(c -> length(c.t) > n, components)
-            lengths = Dict{String,Int}(
-                String(g) => length(c.t) for (g, c) in zip(group, components)
-            )
-            @warn "TDI components differ in length; the record is their common span" path n_common =
-                n lengths
-        end
-        for k in 2:length(components)
-            cₖ = components[k]
-            i = findfirst(j -> !isapprox(cₖ.t[j], c₁.t[j]; atol = 1e-6 * c₁.dt), 1:n)
+            lengths[String(group[k])] = length(c.t)
+            n = min(n, length(c.t))
+            i = findfirst(j -> !isapprox(c.t[j], t[j]; atol = 1e-6 * dt), 1:n)
             i === nothing || throw(
                 ArgumentError(
                     "the time samples of TDI component $(repr(group[k])) of $path are " *
                     "not those of $(repr(group[1])) (first difference at sample $i).",
                 ),
             )
+            for (acc, part) in ((X, c.X), (Y, c.Y), (Z, c.Z))
+                length(acc) > n && resize!(acc, n)
+                acc .+= view(part, 1:n)
+            end
         end
-        X = c₁.X[1:n]
-        Y = c₁.Y[1:n]
-        Z = c₁.Z[1:n]
-        for cₖ in components[2:end]
-            X .+= view(cₖ.X, 1:n)
-            Y .+= view(cₖ.Y, 1:n)
-            Z .+= view(cₖ.Z, 1:n)
+        if any(>(n), values(lengths))
+            @warn "TDI components differ in length; the record is their common span" path n_common =
+                n lengths
         end
-        (t = c₁.t[1:n], X = X, Y = Y, Z = Z, dt = c₁.dt)
+        length(t) > n && (t = t[1:n])
+        (t = t, X = X, Y = Y, Z = Z, dt = dt)
     end
 end
 
@@ -372,7 +370,9 @@ function read_tdi_object(file::HDF5.File, group::AbstractString, path::AbstractS
     length(t) == length(X) == length(Y) == length(Z) ||
         throw(DimensionMismatch("the TDI datasets of $path differ in length."))
     dt = if haskey(attributes(obj), "dt")
-        Float64(read(attributes(obj)["dt"]))
+        # A scalar attribute, or the one-element array some products write
+        value = read(attributes(obj)["dt"])
+        Float64(value isa AbstractArray ? only(value) : value)
     elseif length(t) >= 2
         t[2] - t[1]
     else
