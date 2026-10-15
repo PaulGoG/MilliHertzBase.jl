@@ -80,7 +80,9 @@ end
 
 Payload-export stage of the telemetry coupling. The Michelson variables of
 the HDF5 TDI product `h5_file` (default `[preprocessing] h5_file`) at
-`tdi_group` (default `[preprocessing] tdi_group`; [`read_tdi`](@ref)) are
+`tdi_group` (default the configured record: `[preprocessing]
+tdi_components` when given, else `tdi_group`; [`record_groups`](@ref),
+[`read_tdi`](@ref)) are
 combined into the channels of the mode `channels` (default `[tdi]
 channels`; [`channel_names`](@ref), [`tdi_to_aet`](@ref)), which are
 written in single precision as the CSV
@@ -136,7 +138,7 @@ function export_telemetry_payload(
         settings = telemetry_settings(config)
         pre = preprocessing_settings(config)
         source = resolvepath(override(h5_file, pre.h5_file))
-        group = String(override(tdi_group, pre.tdi_group))
+        group = tdi_group === nothing ? record_groups(pre) : String(tdi_group)
         mode = String(override(channels, tdi_settings(config).channels))
         channel_set = channel_names(mode)
         prefix =
@@ -257,7 +259,8 @@ function export_telemetry_payload(
             ),
             "payload" => Dict{String,Any}(
                 "source" => provenance_path(source),
-                "tdi_group" => group,
+                "tdi_group" => group isa AbstractString ? group : join(group, " + "),
+                (group isa AbstractString ? () : ("tdi_components" => group,))...,
                 "channels" => mode,
                 "columns" => columns,
                 "n_rows" => n_rows,

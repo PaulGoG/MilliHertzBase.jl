@@ -7,6 +7,14 @@ follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- `[preprocessing] tdi_components` (`preprocessing_settings`,
+  `record_groups`): a record read as the sum of several HDF5 component
+  streams over their common span (`read_tdi` with a vector of objects;
+  equal sampling step and time samples required, a longer component
+  trimmed with a warning), the layout of the LDC products shipped as
+  component streams (LDC-1b Yorsh); the pre-processing, payload-export and
+  labelling stages read the configured components, and the product's
+  parameters record the list.
 - `[telemetry] alert_confirmation_persistence` (`telemetry_settings`): 0,
   no confirmation tier, or a number of consecutive alarmed windows that
   confirms an alert, above both `alert_persistence` and the overlap

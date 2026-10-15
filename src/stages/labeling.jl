@@ -180,7 +180,7 @@ function record_truth_snr(
             "observed record; [preprocessing] psd = \"none\" provides none.",
         ),
     )
-    tdi = read_tdi(record_path; group = pre.tdi_group)
+    tdi = read_tdi(record_path; group = record_groups(pre))
     isapprox(1 / tdi.dt, fs; rtol = 1e-9) || throw(
         ArgumentError(
             "the record $record_path is sampled at $(1 / tdi.dt) Hz, " *

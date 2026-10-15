@@ -70,6 +70,7 @@ export channel_noise_psd, draw_extrinsic, lisa_response, detector_response, ldc_
 export ldc_confusion_psd, tdi_to_aet, read_tdi, read_catalog, windowed_snr, snr_peaks
 export whitened_window_snr
 export detectable_spans, signal_onsets, generation_settings, preprocessing_settings
+export record_groups
 export ldc_settings, telemetry_settings, generate_telemetry, preprocess_record
 export tdi_settings, channel_names, channel_suffix, CHANNEL_MODES
 export channel_record, mode_events

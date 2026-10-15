@@ -271,59 +271,115 @@ product. `group` is either a compound dataset with fields `t`, `X`, `Y`, `Z`
 datasets `t`, `X`, `Z` and optionally `Y` (the simulator's layout; a missing
 `Y` reads as zeros). `dt` comes from the dataset attribute of that name when
 present, otherwise from the first two time samples.
+
+`group` may also be a vector of such objects; the record is then the sum of
+their `X`, `Y` and `Z` streams, sample by sample, over their common span.
+The components must share the sampling step and the time samples; a longer
+component is trimmed to the shortest with a warning, and a NaN in any
+component is a NaN of the record. This is the layout of the LDC products
+shipped as component streams (instrument noise, confusion noise, one stream
+per source), e.g. LDC-1b Yorsh.
 """
-function read_tdi(path::AbstractString; group::AbstractString = "obs/tdi")
+function read_tdi(
+    path::AbstractString;
+    group::Union{AbstractString,AbstractVector{<:AbstractString}} = "obs/tdi",
+)
     isfile(path) || throw(ArgumentError("HDF5 file not found: $path"))
     return h5open(path, "r") do file
-        haskey(file, group) ||
-            throw(ArgumentError("$path holds no object at $(repr(group))."))
-        obj = file[group]
-        obj isa HDF5.Group ||
-            obj isa HDF5.Dataset ||
-            throw(
-                ArgumentError("$(repr(group)) of $path is neither a group nor a dataset."),
+        group isa AbstractString && return read_tdi_object(file, group, path)
+        isempty(group) && throw(ArgumentError("no TDI components named for $path."))
+        components = [read_tdi_object(file, g, path) for g in group]
+        c₁ = first(components)
+        for (k, cₖ) in enumerate(components)
+            isapprox(cₖ.dt, c₁.dt; rtol = 1e-9) || throw(
+                ArgumentError(
+                    "TDI component $(repr(group[k])) of $path is sampled at " *
+                    "$(cₖ.dt) s, component $(repr(group[1])) at $(c₁.dt) s.",
+                ),
             )
-        local t, X, Y, Z
-        if obj isa HDF5.Group
-            for name in ("t", "X", "Z")
-                haskey(obj, name) || throw(
-                    ArgumentError("group $(repr(group)) of $path lacks the dataset $name."),
-                )
-            end
-            t = Float64.(vec(read(hdf5_dataset(obj, "t"))))
-            X = Float64.(vec(read(hdf5_dataset(obj, "X"))))
-            Z = Float64.(vec(read(hdf5_dataset(obj, "Z"))))
-            Y =
-                haskey(obj, "Y") ? Float64.(vec(read(hdf5_dataset(obj, "Y")))) :
-                zeros(length(t))
-        else
-            rows = vec(read(obj))
-            isempty(rows) &&
-                throw(ArgumentError("dataset $(repr(group)) of $path is empty."))
-            for name in (:t, :X, :Y, :Z)
-                hasproperty(first(rows), name) || throw(
-                    ArgumentError(
-                        "compound dataset $(repr(group)) of $path lacks the field $name.",
-                    ),
-                )
-            end
-            t = Float64[r.t for r in rows]
-            X = Float64[r.X for r in rows]
-            Y = Float64[r.Y for r in rows]
-            Z = Float64[r.Z for r in rows]
         end
-        length(t) == length(X) == length(Y) == length(Z) ||
-            throw(DimensionMismatch("the TDI datasets of $path differ in length."))
-        dt = if haskey(attributes(obj), "dt")
-            Float64(read(attributes(obj)["dt"]))
-        elseif length(t) >= 2
-            t[2] - t[1]
-        else
-            throw(ArgumentError("cannot determine the sampling step of $path."))
+        n = minimum(length(c.t) for c in components)
+        if any(c -> length(c.t) > n, components)
+            lengths = Dict{String,Int}(
+                String(g) => length(c.t) for (g, c) in zip(group, components)
+            )
+            @warn "TDI components differ in length; the record is their common span" path n_common =
+                n lengths
         end
-        dt > 0 || throw(ArgumentError("non-positive sampling step $dt in $path."))
-        (t = t, X = X, Y = Y, Z = Z, dt = dt)
+        for k in 2:length(components)
+            cₖ = components[k]
+            i = findfirst(j -> !isapprox(cₖ.t[j], c₁.t[j]; atol = 1e-6 * c₁.dt), 1:n)
+            i === nothing || throw(
+                ArgumentError(
+                    "the time samples of TDI component $(repr(group[k])) of $path are " *
+                    "not those of $(repr(group[1])) (first difference at sample $i).",
+                ),
+            )
+        end
+        X = c₁.X[1:n]
+        Y = c₁.Y[1:n]
+        Z = c₁.Z[1:n]
+        for cₖ in components[2:end]
+            X .+= view(cₖ.X, 1:n)
+            Y .+= view(cₖ.Y, 1:n)
+            Z .+= view(cₖ.Z, 1:n)
+        end
+        (t = c₁.t[1:n], X = X, Y = Y, Z = Z, dt = c₁.dt)
     end
+end
+
+"""
+    read_tdi_object(file, group, path) -> NamedTuple
+
+`(t, X, Y, Z, dt)` of the single TDI object `group` of the open HDF5 file
+`file` (a compound dataset or a group of plain datasets, as described for
+[`read_tdi`](@ref)); `path` names the file in the error messages.
+"""
+function read_tdi_object(file::HDF5.File, group::AbstractString, path::AbstractString)
+    haskey(file, group) || throw(ArgumentError("$path holds no object at $(repr(group))."))
+    obj = file[group]
+    obj isa HDF5.Group ||
+        obj isa HDF5.Dataset ||
+        throw(ArgumentError("$(repr(group)) of $path is neither a group nor a dataset."))
+    local t, X, Y, Z
+    if obj isa HDF5.Group
+        for name in ("t", "X", "Z")
+            haskey(obj, name) || throw(
+                ArgumentError("group $(repr(group)) of $path lacks the dataset $name."),
+            )
+        end
+        t = Float64.(vec(read(hdf5_dataset(obj, "t"))))
+        X = Float64.(vec(read(hdf5_dataset(obj, "X"))))
+        Z = Float64.(vec(read(hdf5_dataset(obj, "Z"))))
+        Y =
+            haskey(obj, "Y") ? Float64.(vec(read(hdf5_dataset(obj, "Y")))) :
+            zeros(length(t))
+    else
+        rows = vec(read(obj))
+        isempty(rows) && throw(ArgumentError("dataset $(repr(group)) of $path is empty."))
+        for name in (:t, :X, :Y, :Z)
+            hasproperty(first(rows), name) || throw(
+                ArgumentError(
+                    "compound dataset $(repr(group)) of $path lacks the field $name.",
+                ),
+            )
+        end
+        t = Float64[r.t for r in rows]
+        X = Float64[r.X for r in rows]
+        Y = Float64[r.Y for r in rows]
+        Z = Float64[r.Z for r in rows]
+    end
+    length(t) == length(X) == length(Y) == length(Z) ||
+        throw(DimensionMismatch("the TDI datasets of $path differ in length."))
+    dt = if haskey(attributes(obj), "dt")
+        Float64(read(attributes(obj)["dt"]))
+    elseif length(t) >= 2
+        t[2] - t[1]
+    else
+        throw(ArgumentError("cannot determine the sampling step of $path."))
+    end
+    dt > 0 || throw(ArgumentError("non-positive sampling step $dt in $path."))
+    return (t = t, X = X, Y = Y, Z = Z, dt = dt)
 end
 
 """

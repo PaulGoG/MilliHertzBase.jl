@@ -13,7 +13,9 @@
 Number of samples of the TDI object at `group` of the HDF5 file `path`,
 read from the dataset extents without loading the record: the length of
 the `t` dataset of a group of plain datasets, or the row count of a
-compound dataset (the two layouts accepted by [`read_tdi`](@ref)).
+compound dataset (the two layouts accepted by [`read_tdi`](@ref)). For a
+vector of components it is the length of their common span, that of the
+shortest.
 """
 function tdi_sample_count(path::AbstractString, group::AbstractString)
     isfile(path) || throw(ArgumentError("HDF5 file not found: $path"))
@@ -31,6 +33,11 @@ function tdi_sample_count(path::AbstractString, group::AbstractString)
             )
         end
     end
+end
+
+function tdi_sample_count(path::AbstractString, groups::AbstractVector{<:AbstractString})
+    isempty(groups) && throw(ArgumentError("no TDI components named for $path."))
+    return minimum(tdi_sample_count(path, g) for g in groups)
 end
 
 """
@@ -67,17 +74,20 @@ analysis bands, the record high-pass, the feature set, and — when
 are identified by content, not by path or modification time, so a moved or
 rewritten but identical input keeps the product's identity. Its digest
 ([`parameter_digest`](@ref)) keys the reuse of an existing product.
+For a record summed from a vector of components ([`read_tdi`](@ref)),
+`tdi_group` is their names joined by `" + "` and `tdi_components` the list.
 """
 function preprocessing_parameters(
     settings::NamedTuple,
     h5_path::AbstractString,
-    tdi_group::AbstractString,
+    tdi_group::Union{AbstractString,AbstractVector{<:AbstractString}},
     label_path::AbstractString;
     channels::AbstractString = "A",
 )
     parameters = Dict{String,Any}(
         "source_sha256" => content_digest(h5_path),
-        "tdi_group" => String(tdi_group),
+        "tdi_group" =>
+            tdi_group isa AbstractString ? String(tdi_group) : join(tdi_group, " + "),
         "window_size" => settings.window_size,
         "step_size" => settings.step_size,
         "psd" => settings.psd,
@@ -90,6 +100,8 @@ function preprocessing_parameters(
         "feature_set" => String(settings.feature_set),
     )
     merge!(parameters, Dict(analytic_psd_parameters(settings)))
+    tdi_group isa AbstractString ||
+        (parameters["tdi_components"] = collect(String, tdi_group))
     if settings.psd == "welch"
         parameters["welch_segment_length"] = settings.welch_segment_length
         parameters["psd_smoothing_dex"] = settings.psd_smoothing_dex
@@ -333,7 +345,9 @@ end
     preprocess_record(config; h5_file = nothing, tdi_group = nothing, label_file = "",
                       output_prefix = nothing, force = false) -> NamedTuple
 
-Pre-processing stage: the TDI product `h5_file` (group `tdi_group`) is read
+Pre-processing stage: the TDI product `h5_file` (group `tdi_group`, by
+default the configured record: `[preprocessing] tdi_components` when given,
+else `tdi_group`; [`record_groups`](@ref)) is read
 ([`read_tdi`](@ref)), combined into the orthogonal channels of the mode
 `[tdi] channels` ([`tdi_to_aet`](@ref), [`tdi_settings`](@ref)): A, or A
 and E. Each channel is high-passed below the analysis bands
@@ -402,7 +416,7 @@ function preprocess_record(
         )
         channels = channel_names(mode)
         h5_path = resolvepath(override(h5_file, settings.h5_file))
-        group = String(override(tdi_group, settings.tdi_group))
+        group = tdi_group === nothing ? record_groups(settings) : String(tdi_group)
         prefix =
             String(override(output_prefix, settings.output_prefix)) * channel_suffix(mode)
         label_path = isempty(label_file) ? "" : resolvepath(label_file)
@@ -538,7 +552,11 @@ function preprocess_record(
                     ),
                     "features" => Dict{String,Any}(
                         "source" => provenance_path(h5_path),
-                        "tdi_group" => group,
+                        "tdi_group" => parameters["tdi_group"],
+                        (
+                            haskey(parameters, "tdi_components") ?
+                            ("tdi_components" => parameters["tdi_components"],) : ()
+                        )...,
                         "channels" => mode,
                         (
                             length(channels) > 1 ?

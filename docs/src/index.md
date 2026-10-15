@@ -16,7 +16,7 @@ along the arms, in which the laser frequency noise cancels.
 | Noise | `lisa_noise_psd`, `instrument_psd`, `confusion_psd` (Robson, Cornish & Liu 2019, doi:10.1088/1361-6382/ab1101); the analytic TDI noise of the LDC toolbox, `ldc_tdi_psd`, `ldc_confusion_psd`; `channel_noise_psd` |
 | Waveforms | IMRPhenomA (Ajith et al. 2008, doi:10.1103/PhysRevD.77.104017): `phenoma_parameters`, `phenoma_spectrum`, `phenoma_series`, `phenoma_waveform`, `phenoma_physical_amplitude`, `phenoma_arrival_delay` |
 | Detector response | `AbstractDetectorResponse`, `SkyAveragedResponse`, `detector_response`; the constellation response `lisa_response` through the CurvatureDistinguishability extension |
-| LDC products | `read_tdi`, `tdi_to_aet`, `read_catalog`, `catalog_events`, `whitening_psd`, `whitening_psd_from_sidecar` |
+| LDC products | `read_tdi` (one object, or the sum of the component streams named by `[preprocessing] tdi_components`), `tdi_to_aet`, `read_catalog`, `catalog_events`, `whitening_psd`, `whitening_psd_from_sidecar` |
 | Labels | `windowed_snr`, `whitened_window_snr`, `snr_peaks`, `detectable_span`, `detectable_spans`, `signal_onsets` |
 | Stages | `generate_telemetry`, `preprocess_record`, `label_truth_stream`, `export_telemetry_payload`, each driven by a TOML configuration (`generation_settings`, `preprocessing_settings`, `ldc_settings`, `telemetry_settings`, `tdi_settings`); the labelling measures the signal onset against the noise of the observed record (`[ldc] psd_model = "record"`, the default) or against an analytic TDI noise model |
 | Channel modes | `[tdi] channels = "A" \| "AE" \| "AET"` (`tdi_settings`, `channel_names`, `channel_suffix`), recorded in every product; `channel_record`, `mode_events` for the replay of several channels |

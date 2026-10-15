@@ -167,11 +167,30 @@ function tdi_settings(config::AbstractDict)
 end
 
 """
+    check_tdi_components(components) -> Vector{String}
+
+`[preprocessing] tdi_components` validated: every entry a non-empty string,
+no entry twice. The empty vector means a record of the single object
+`tdi_group`.
+"""
+function check_tdi_components(components::AbstractVector)
+    valid =
+        all(c -> c isa AbstractString && !isempty(c), components) && allunique(components)
+    valid || throw(
+        ArgumentError(
+            "configuration key `tdi_components` = $(repr(components)); expected " *
+            "distinct non-empty strings.",
+        ),
+    )
+    return String[String(c) for c in components]
+end
+
+"""
     preprocessing_settings(config) -> NamedTuple
 
-Validated `[preprocessing]` parameters: input product and TDI group, window
-geometry, whitening PSD selection, analysis bands, record high-pass, and
-feature set.
+Validated `[preprocessing]` parameters: input product and TDI group or
+component list, window geometry, whitening PSD selection, analysis bands,
+record high-pass, and feature set.
 """
 function preprocessing_settings(config::AbstractDict)
     p = section(config, "preprocessing")
@@ -189,6 +208,9 @@ function preprocessing_settings(config::AbstractDict)
             ),
         ),
         tdi_group = cfgget(p, "tdi_group", "obs/tdi"; type = String),
+        tdi_components = check_tdi_components(
+            cfgget(p, "tdi_components", String[]; type = AbstractVector),
+        ),
         window_size = window_size,
         step_size = step_size,
         sample_rate = cfgget(p, "sample_rate", nothing; type = Union{Nothing,Float64}),
@@ -258,6 +280,17 @@ function preprocessing_settings(config::AbstractDict)
         output_prefix = cfgget(p, "output_prefix", "telemetry"; type = String),
     )
 end
+
+"""
+    record_groups(settings) -> String or Vector{String}
+
+The HDF5 object(s) a stage reads the observed record from, under the
+validated `[preprocessing]` settings: `tdi_components` when that list is
+not empty (the record is the sum of the components, [`read_tdi`](@ref)),
+else `tdi_group`.
+"""
+record_groups(settings::NamedTuple) =
+    isempty(settings.tdi_components) ? settings.tdi_group : settings.tdi_components
 
 """
     ldc_settings(config) -> NamedTuple

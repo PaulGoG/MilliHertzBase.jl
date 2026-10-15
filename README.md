@@ -148,6 +148,13 @@ against the pipeline root of StreamingInference.jl: the directory set by
 environment whose `Project.toml` declares a package. The scripts that run
 the stages from the command line are those of MilliHertzQML.jl.
 
+The observed record is the HDF5 object `[preprocessing] tdi_group`, or,
+when `[preprocessing] tdi_components` lists several objects, their sum
+sample by sample over their common span: the layout of the LDC products
+shipped as component streams, such as LDC-1b Yorsh (instrument noise,
+confusion noise, one stream per source). `--tdi-group` of the scripts names
+one object and overrides the list.
+
 A simulated record of three days with one massive black hole binary,
 generated and pre-processed under a temporary pipeline root:
 

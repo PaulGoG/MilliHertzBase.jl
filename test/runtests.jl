@@ -257,6 +257,35 @@ end
         end
         scalar = read_catalog(compound; group = "sky/cat")
         @test nrow(scalar) == 1 && scalar == table
+        # A record read as the sum of component streams over their common span
+        HDF5.h5open(compound, "r+") do f
+            f["instnoise/tdi"] =
+                [(t = t[i], X = 0.5 * i, Y = 0.25 * i, Z = 0.125 * i) for i in 1:n]
+            HDF5.attributes(f["instnoise/tdi"])["dt"] = 5.0
+            # Integer time samples and step, one sample shorter
+            f["noise/conf"] =
+                [(t = Int64(t[i]), X = 1.0, Y = 2.0, Z = 3.0) for i in 1:(n-1)]
+            HDF5.attributes(f["noise/conf"])["dt"] = 5
+            # Shifted time samples; another sampling step
+            f["late/tdi"] = [(t = t[i] + 5.0, X = 1.0, Y = 1.0, Z = 1.0) for i in 1:n]
+            f["fast/tdi"] = [(t = t[i] / 2, X = 1.0, Y = 1.0, Z = 1.0) for i in 1:n]
+            HDF5.attributes(f["fast/tdi"])["dt"] = 2.5
+        end
+        c = @test_logs (:warn, r"common span") match_mode = :any read_tdi(
+            compound;
+            group = ["obs/tdi", "instnoise/tdi", "noise/conf"],
+        )
+        @test length(c.t) == n - 1 && c.t == t[1:(n-1)] && c.dt == 5.0
+        @test c.X == [1.5 * i + 1.0 for i in 1:(n-1)]
+        @test c.Y == [2.25 * i + 2.0 for i in 1:(n-1)]
+        @test c.Z == [3.125 * i + 3.0 for i in 1:(n-1)]
+        one = read_tdi(compound; group = ["obs/tdi"])
+        @test one.t == a.t && one.X == a.X && one.Y == a.Y && one.Z == a.Z && one.dt == a.dt
+        @test MilliHertzBase.tdi_sample_count(compound, ["obs/tdi", "noise/conf"]) == n - 1
+        @test_throws ArgumentError read_tdi(compound; group = ["obs/tdi", "late/tdi"])
+        @test_throws ArgumentError read_tdi(compound; group = ["obs/tdi", "fast/tdi"])
+        @test_throws ArgumentError read_tdi(compound; group = String[])
+        @test_throws ArgumentError MilliHertzBase.tdi_sample_count(compound, String[])
         @test_throws ArgumentError read_tdi(compound; group = "missing")
         @test_throws ArgumentError read_tdi(joinpath(dir, "absent.h5"))
     end
@@ -483,6 +512,18 @@ end
     @test telemetry_settings(wide).alert_confirmation_persistence == 5
     wide["telemetry"]["alert_persistence"] = 5
     @test_throws ArgumentError telemetry_settings(wide)
+    # Component lists of a composite record
+    composite = preprocessing_settings(
+        Dict("preprocessing" => Dict("tdi_components" => ["a/tdi", "b/tdi"])),
+    )
+    @test composite.tdi_components == ["a/tdi", "b/tdi"]
+    @test record_groups(composite) == ["a/tdi", "b/tdi"]
+    @test record_groups(preprocessing_settings(Dict{String,Any}())) == "obs/tdi"
+    for bad in (["a/tdi", "a/tdi"], [1], [""])
+        @test_throws ArgumentError preprocessing_settings(
+            Dict("preprocessing" => Dict("tdi_components" => bad)),
+        )
+    end
 end
 
 @testset "Product identity (pre-processing)" begin
@@ -526,6 +567,37 @@ end
         write_record(2)
         @test content_digest(h5) != digest
         @test !preprocess_record(config).skipped
+        # The same record as the sum of two components: features identical,
+        # a product of its own
+        HDF5.h5open(h5, "r+") do file
+            whole = file["obs/tdi"]
+            for name in ("half1", "half2")
+                half = HDF5.create_group(HDF5.create_group(file, name), "tdi")
+                half["t"] = read(whole["t"])
+                half["X"] = read(whole["X"]) ./ 2
+                half["Y"] = read(whole["Y"]) ./ 2
+                half["Z"] = read(whole["Z"]) ./ 2
+            end
+        end
+        single = preprocess_record(config; force = true)
+        composite_config = deepcopy(config)
+        composite_config["preprocessing"]["tdi_components"] = ["half1/tdi", "half2/tdi"]
+        composite_config["preprocessing"]["output_prefix"] = "composite"
+        composite = preprocess_record(composite_config)
+        @test !composite.skipped
+        @test CSV.read(composite.features_path, DataFrame) ==
+              CSV.read(single.features_path, DataFrame)
+        composite_sidecar = TOML.parsefile(composite.sidecar_path)
+        @test composite_sidecar["features"]["tdi_components"] == ["half1/tdi", "half2/tdi"]
+        @test composite_sidecar["features"]["tdi_group"] == "half1/tdi + half2/tdi"
+        @test composite_sidecar["features"]["parameter_hash"] !=
+              TOML.parsefile(single.sidecar_path)["features"]["parameter_hash"]
+        # The override of the stage names one object and wins over the list
+        @test preprocess_record(
+            composite_config;
+            tdi_group = "obs/tdi",
+            output_prefix = "override",
+        ).n_windows == single.n_windows
     end
 end
 
