@@ -33,7 +33,7 @@ StreamingInference.jl by URL at the commit recorded under `[sources]` in
 ```julia
 using Pkg
 Pkg.add(url = "https://github.com/PaulGoG/StreamingInference.jl",
-        rev = "efd441ac3612a33785110d816e4d5c36f1b9f551")
+        rev = "e6c25c1ad4fdcb5e6e76bfb83b0f83d5ff4945d8")
 Pkg.add(url = "https://github.com/PaulGoG/MilliHertzBase.jl")
 ```
 
