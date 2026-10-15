@@ -158,8 +158,8 @@ channel_suffix(mode::AbstractString) =
     tdi_settings(config) -> NamedTuple
 
 Validated `[tdi]` parameters: `channels`, the channel mode of every product
-made from a TDI record (`"A"` when the section or the key is absent, as
-for the products made before the modes existed).
+made from a TDI record ([`CHANNEL_MODES`](@ref)); `"A"` when the section or
+the key is absent.
 """
 function tdi_settings(config::AbstractDict)
     t = section(config, "tdi")
@@ -266,10 +266,10 @@ Validated `[ldc]` parameters of the truth-stream labelling. `psd_model`
 is `"record"` (the default): the whitening PSD of the observed record
 `record_file` (empty: the file of the truth stream) under the
 `[preprocessing]` settings, the noise the detector faces; or the name of an
-analytic TDI PSD ([`ldc_tdi_psd`](@ref)), the rule of the releases before
-2026-10-12, whose threshold of 5 against the instrument noise is a
-threshold of about 3 against the record. `label_snr_threshold` defaults to
-3 accordingly.
+analytic TDI PSD ([`ldc_tdi_psd`](@ref)), with which the window SNR is the
+matched-filter SNR of the raw signal against that instrument noise, and a
+threshold of 5 there is a threshold of about 3 against the record.
+`label_snr_threshold` defaults to 3.
 """
 function ldc_settings(config::AbstractDict)
     l = section(config, "ldc")

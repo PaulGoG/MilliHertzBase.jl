@@ -254,10 +254,10 @@ scanned against its own PSD, the window SNRs are combined as
 ``\\rho_{AE}^2 = \\rho_A^2 + \\rho_E^2`` (orthogonal noise; Prince et al.
 2002, doi:10.1103/PhysRevD.66.122002), and `signal_start_index_ae` and
 `label_peak_snr_ae` are found from it as their A counterparts are. Under
-`"AET"` the column `signal_start_index_aet` repeats the AE onset: on equal
-arms T carries no signal of these sources below about 10 mHz, and the
-snapshot says so. The labels, the mergers and the A columns do not depend
-on the mode.
+`"AET"` the column `signal_start_index_aet` repeats the AE onset, since
+the response of T to gravitational waves is strongly suppressed relative to
+A and E below about 10 mHz, and the snapshot says so. The labels, the
+mergers and the A columns do not depend on the mode.
 
 Writes, under the `inputs` root, `<output_prefix>_labels.csv` (`Label`,
 `SNR`: the peak windowed SNR of the event a sample belongs to),

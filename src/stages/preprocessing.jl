@@ -60,8 +60,8 @@ end
 Every parameter that determines the pre-processed product: the content
 digest of the source file ([`content_digest`](@ref)) and its TDI group, the
 channel mode and the combination of the channels when the mode is not
-`"A"` (so that the products made before the modes existed keep their
-digest), the window geometry, the whitening mode with the parameters of that mode, the
+`"A"` (the digest of an A-mode product carries neither), the window
+geometry, the whitening mode with the parameters of that mode, the
 analysis bands, the record high-pass, the feature set, and — when
 `label_path` is non-empty — the content digest of the label file. Inputs
 are identified by content, not by path or modification time, so a moved or
@@ -345,8 +345,7 @@ feature the value farthest towards a signal among the channels; `"mean"`,
 the features of the channel-averaged periodogram — so their number is that
 of the A mode.
 The mode `"AE"` appends `_ae` to `output_prefix`; the mode `"AET"` is
-refused: no features of the T channel are defined (a veto on its band
-powers was examined on records with glitches and not adopted).
+refused: no features of the T channel are defined.
 The features are written to
 `<inputs>/<output_prefix>_features.csv` with a TOML sidecar
 `<output_prefix>_features.toml` holding the window geometry, the feature

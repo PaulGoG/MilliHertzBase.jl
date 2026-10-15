@@ -35,6 +35,15 @@ follow [Semantic Versioning](https://semver.org/).
   the mode and the columns under `[payload]`; the stage returns `columns`.
 
 ### Changed
+- The README and the manual are written for a reader new to the package:
+  LISA, time-delay interferometry, the A, E, T combinations and the LISA
+  Data Challenge products defined at first use with their references;
+  installation that makes the example run (StreamingInference.jl added by
+  URL at the pinned commit before this package); a section on the stages
+  and their configuration with a runnable example; the payload columns of
+  every channel mode; the replay settings `telemetry_settings` validates.
+  Docstrings and the manual describe the current behaviour without the
+  history of earlier versions.
 - The DeepSpaceTelemetry extension has moved to StreamingInference.jl,
   since reading a producer run is not specific to gravitational waves:
   `open_telemetry_run` is StreamingInference's, re-exported here, built on

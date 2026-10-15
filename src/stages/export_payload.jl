@@ -1,9 +1,10 @@
-# Payload-export stage of the telemetry
-# coupling: the A channel of an HDF5 TDI product written as the
-# single-column amplitude CSV that the telemetry producer ingests gaplessly,
-# beside a scenario fragment holding the external-data physics table, the
-# mission start time, the coalescence markers of an event catalogue, and the
-# label spans from which the consumer rebuilds the point-wise labels.
+# Payload-export stage of the telemetry coupling: the channels of an HDF5
+# TDI product written as the CSV that the telemetry producer ingests
+# gaplessly (the A channel as one `Amplitude` column, several channels as
+# columns `A`, `E`, `T`), beside a scenario fragment holding the
+# external-data physics table, the mission start time, the coalescence
+# markers of an event catalogue, and the label spans from which the consumer
+# rebuilds the point-wise labels.
 
 """
     samples_per_batch(sample_rate, segment_duration_sec, batch_size) -> Int
@@ -91,9 +92,10 @@ payload by default, and several channels as columns named `A`, `E`
 one payload under one link accounting — one batch, one transfer, one loss
 for all of them. Beside it, `<output_prefix><suffix>_scenario.toml` holds
 the scenario fragment of the producer's external-data mode: `[physics]`
-with `data_source = "external"`, the payload path relative to the package
-root, the sampling frequency of the file, the `segment_duration_sec` and
-`batch_size` of [`telemetry_settings`](@ref), and for several channels
+with `data_source = "external"`, the payload path relative to the pipeline
+root (`project_root` of StreamingInference), the sampling frequency of the
+file, the `segment_duration_sec` and `batch_size` of
+[`telemetry_settings`](@ref), and for several channels
 `external_data_columns`, their names; `[simulation]` with
 `start_sim_time`; `[[events.markers]]` with one `{time, label = "mbhb_<id>"}`
 entry per event of `catalog` — the simulator catalogue (`event_id`,
