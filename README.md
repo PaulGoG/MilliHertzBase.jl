@@ -76,20 +76,21 @@ The full tree is at the end of this page.
 
 ## Installation
 
-The package requires Julia 1.13 or later and is not registered; there is
-no release yet. It depends on StreamingInference.jl, unregistered too, at
-the commit recorded under `[sources]` in `Project.toml`. Most uses, the
-examples below among them, also load StreamingInference directly, so an
-environment adds it first, at that commit, and MilliHertzBase after it:
+The package requires Julia 1.13 or later and is not registered; its first
+release is 0.1.0 (tag `v0.1.0`, 15 October 2026). It depends on
+StreamingInference.jl 0.1.0, unregistered too, at the commit recorded
+under `[sources]` in `Project.toml`. Most uses, the examples below among
+them, also load StreamingInference directly, so an environment adds it
+first, at its release tag, and MilliHertzBase after it:
 
 ```julia
 using Pkg
-Pkg.add(url = "https://github.com/PaulGoG/StreamingInference.jl",
-        rev = "e6c25c1ad4fdcb5e6e76bfb83b0f83d5ff4945d8")
-Pkg.add(url = "https://github.com/PaulGoG/MilliHertzBase.jl")
+Pkg.add(url = "https://github.com/PaulGoG/StreamingInference.jl", rev = "v0.1.0")
+Pkg.add(url = "https://github.com/PaulGoG/MilliHertzBase.jl", rev = "v0.1.0")  # the release
+Pkg.add(url = "https://github.com/PaulGoG/MilliHertzBase.jl")                  # main
 ```
 
-MilliHertzBase follows `main` this way; `rev` pins it to a commit. The
+The
 extension for
 [CurvatureDistinguishability.jl](https://github.com/PaulGoG/CurvatureDistinguishability.jl)
 (the constellation response) loads when that package, unregistered too,
@@ -198,8 +199,9 @@ MilliHertzQML.jl pass to `alert_latency_table` of StreamingInference.jl.
 
 ## Status
 
-No release yet: version 0.1.0-DEV on `main`, which MilliHertzQML.jl pins
-by commit; install by URL and commit, as above.
+The first release is 0.1.0 (tag `v0.1.0`, 15 October 2026), which
+MilliHertzQML.jl 3.0.0 pins by commit; install by URL at the tag, or
+follow `main`, as above.
 
 ## Full file tree
 
@@ -259,10 +261,11 @@ MilliHertzBase.jl/
 
 ```bibtex
 @software{Gogita_MilliHertzBase_jl,
-  author = {Gogîță, Paul-Adrian},
-  title  = {{MilliHertzBase.jl}},
-  url    = {https://github.com/PaulGoG/MilliHertzBase.jl},
-  year   = {2026}
+  author  = {Gogîță, Paul-Adrian},
+  title   = {{MilliHertzBase.jl}},
+  version = {0.1.0},
+  url     = {https://github.com/PaulGoG/MilliHertzBase.jl},
+  year    = {2026}
 }
 ```
 

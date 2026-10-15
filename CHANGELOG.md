@@ -6,6 +6,8 @@ follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.0] — 2026-10-15
+
 ### Added
 - `[preprocessing] tdi_components` (`preprocessing_settings`,
   `record_groups`): a record read as the sum of several HDF5 component

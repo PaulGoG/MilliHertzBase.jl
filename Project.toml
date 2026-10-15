@@ -1,6 +1,6 @@
 name = "MilliHertzBase"
 uuid = "4a1e2e3e-48c7-4c7a-8dfb-6ff8a58d7de2"
-version = "0.1.0-DEV"
+version = "0.1.0"
 authors = ["Paul-Adrian Gogîță <gogitapaul@yahoo.ro>"]
 
 [deps]
@@ -25,7 +25,7 @@ MilliHertzBaseCairoMakieExt = "CairoMakie"
 MilliHertzBaseCurvatureDistinguishabilityExt = "CurvatureDistinguishability"
 
 [sources]
-StreamingInference = {url = "https://github.com/PaulGoG/StreamingInference.jl.git", rev = "e6c25c1ad4fdcb5e6e76bfb83b0f83d5ff4945d8"}
+StreamingInference = {url = "https://github.com/PaulGoG/StreamingInference.jl.git", rev = "86b91d2732cd808d996bf1e1b1f0f7e1ae8fba8b"}
 
 [compat]
 CSV = "0.10, 1.1"
