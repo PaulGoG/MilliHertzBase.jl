@@ -25,7 +25,7 @@ MilliHertzBaseCairoMakieExt = "CairoMakie"
 MilliHertzBaseCurvatureDistinguishabilityExt = "CurvatureDistinguishability"
 
 [sources]
-StreamingInference = {url = "https://github.com/PaulGoG/StreamingInference.jl.git", rev = "eb78e1116f8676387688d2dee035b516482726a4"}
+StreamingInference = {url = "https://github.com/PaulGoG/StreamingInference.jl.git", rev = "efd441ac3612a33785110d816e4d5c36f1b9f551"}
 
 [compat]
 CSV = "0.10, 1.1"
