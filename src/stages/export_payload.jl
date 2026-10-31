@@ -9,31 +9,20 @@
 """
     samples_per_batch(sample_rate, segment_duration_sec, batch_size) -> Int
 
-Payload rows consumed by one batch of the telemetry producer:
-`sample_rate × segment_duration_sec` rows per segment, `batch_size`
-segments per batch. The rows per segment must be a whole number, since the
-producer cuts the record gaplessly into equal segments; `ArgumentError`
-otherwise.
+Payload rows consumed by one batch of the telemetry producer,
+`sample_rate × segment_duration_sec × batch_size` for `batch_size`
+segments of `segment_duration_sec` [s] at `sample_rate` [Hz]. The count
+must be a whole number, the rule of the producer that the run geometry of
+StreamingInference applies ([`RunGeometry`](@ref), whose mission epoch
+does not enter the count); `ArgumentError` otherwise.
 """
 function samples_per_batch(
     sample_rate::Real,
     segment_duration_sec::Real,
     batch_size::Integer,
 )
-    sample_rate > 0 || throw(ArgumentError("sample_rate = $sample_rate; must be positive."))
-    segment_duration_sec > 0 || throw(
-        ArgumentError("segment_duration_sec = $segment_duration_sec; must be positive."),
-    )
-    batch_size >= 1 || throw(ArgumentError("batch_size = $batch_size; must be at least 1."))
-    per_segment = sample_rate * segment_duration_sec
-    n_segment = round(Int, per_segment)
-    (n_segment >= 1 && isapprox(per_segment, n_segment; atol = 1e-6)) || throw(
-        ArgumentError(
-            "segment_duration_sec = $segment_duration_sec at $sample_rate Hz holds " *
-            "$per_segment samples; a segment must hold a whole number of samples.",
-        ),
-    )
-    return n_segment * batch_size
+    geometry = RunGeometry(sample_rate, segment_duration_sec, batch_size, Dates.DateTime(0))
+    return geometry.points_per_batch
 end
 
 """
@@ -116,10 +105,11 @@ Payload row ``r`` corresponds to `start_sim_time` + ``(r - 1)/f_s`` and
 batch ``k`` to the rows ``[(k - 1)P + 1, kP]`` with ``P`` =
 [`samples_per_batch`](@ref). The record must hold at least one full batch,
 every coalescence must lie inside it, and every non-empty label span inside
-`1:n_rows`; `ArgumentError` otherwise. Existing outputs are backed up
-([`backup_existing!`](@ref)); the memory of the record arrays is checked
-against `[resources]` ([`check_memory`](@ref)). Timed under `TIMER` as
-`"payload export"`.
+`1:n_rows`; a mode wider than the channel set a simulated record carries
+is refused ([`check_recorded_channels`](@ref)); `ArgumentError` otherwise.
+Existing outputs are backed up ([`backup_existing!`](@ref)); the memory of
+the record arrays is checked against `[resources]` before the read
+([`check_memory`](@ref)). Timed under `TIMER` as `"payload export"`.
 
 Returns `(; payload_path, scenario_path, n_rows, sample_rate,
 start_sim_time, markers, columns)` with `markers` a vector of
@@ -148,15 +138,16 @@ function export_telemetry_payload(
             isfile(catalog_path) ||
             throw(ArgumentError("event catalog not found: $catalog_path"))
 
-        # A channel of the record and the batch geometry it must satisfy
-        tdi = read_tdi(source; group = group)
-        n_rows = length(tdi.t)
-        sample_rate = 1 / tdi.dt
+        # Channels of the record and the batch geometry they must satisfy
+        check_recorded_channels(source, group, mode)
         check_memory(
-            record_memory_estimate_gib(n_rows),
+            record_memory_estimate_gib(tdi_sample_count(source, group)),
             resource_settings(config);
             stage = "payload export",
         )
+        tdi = read_tdi(source; group = group)
+        n_rows = length(tdi.t)
+        sample_rate = 1 / tdi.dt
         A, E, T = tdi_to_aet(tdi.X, tdi.Y, tdi.Z)
         # One `Amplitude` column for the A channel, the producer's default
         # payload; named columns for several channels
@@ -230,15 +221,7 @@ function export_telemetry_payload(
         out_dir = pipeline_paths(config).inputs
         payload_path = joinpath(out_dir, "$(prefix)_payload.csv")
         scenario_path = joinpath(out_dir, "$(prefix)_scenario.toml")
-        for out in (payload_path, scenario_path), inp in (source, catalog_path)
-            inp !== nothing &&
-                abspath(out) == abspath(inp) &&
-                throw(
-                    ArgumentError(
-                        "output $out coincides with an input; choose another prefix.",
-                    ),
-                )
-        end
+        check_outputs_distinct((payload_path, scenario_path), (source, catalog_path))
         write_csv(payload_path, payload_table)
         physics = Dict{String,Any}(
             "data_source" => "external",

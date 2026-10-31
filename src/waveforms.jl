@@ -157,6 +157,15 @@ function phenoma_start_frequency(p, delay::Real; f_upper::Real = p.f_merg)
 end
 
 """
+    NYQUIST_TAPER_RANGE
+
+Allowed range `[0.3, 1]` of the fraction of the Nyquist frequency at which
+the spectrum of [`phenoma_spectrum`](@ref) is tapered to zero, the bound of
+`nyquist_taper` there and of `[generation] nyquist_taper`.
+"""
+const NYQUIST_TAPER_RANGE = (0.3, 1.0)
+
+"""
     cosine_rolloff(f, f_start, f_stop)
 
 Smooth weight rising from 0 at `f_start` to 1 at `f_stop` (half-cosine);
@@ -192,7 +201,8 @@ detector-frame `total_mass` [M⊙] and `mass_ratio` ``q \\ge 1`` on the
   signal starts inside the segment instead of wrapping around;
 - the spectrum is tapered to zero with a half-cosine ending at
   `nyquist_taper` times the Nyquist frequency (starting 0.1 Nyquist
-  below it), so the sampled waveform cannot alias whatever the mass.
+  below it; `nyquist_taper` in [`NYQUIST_TAPER_RANGE`](@ref)), so the
+  sampled waveform cannot alias whatever the mass.
 
 Returns `(; freqs, H, n, t_merger, t0, p)`: the grid frequencies [Hz], the
 spectrum, the segment length in samples, the local merger time and time
@@ -211,8 +221,12 @@ function phenoma_spectrum(
     fs > 0 || throw(ArgumentError("fs = $fs; the sampling frequency must be positive."))
     duration_sec > 0 ||
         throw(ArgumentError("duration_sec = $duration_sec; must be positive."))
-    0.2 < nyquist_taper <= 1 ||
-        throw(ArgumentError("nyquist_taper = $nyquist_taper; must lie in (0.2, 1]."))
+    first(NYQUIST_TAPER_RANGE) <= nyquist_taper <= last(NYQUIST_TAPER_RANGE) || throw(
+        ArgumentError(
+            "nyquist_taper = $nyquist_taper; must lie in [$(first(NYQUIST_TAPER_RANGE)), " *
+            "$(last(NYQUIST_TAPER_RANGE))].",
+        ),
+    )
     0 < rolloff_width <= 1 ||
         throw(ArgumentError("rolloff_width = $rolloff_width; must lie in (0, 1]."))
     p = phenoma_parameters(total_mass, mass_ratio)
@@ -315,7 +329,8 @@ below the ringdown frequency, clamped at zero, and zero at and above it,
 where the derivative of the fitted phase is no longer an arrival time
 (and at ``f \\le 0``, which carries no signal). A detector response evaluated at
 this instant, and at the coalescence through the merger–ringdown, is the
-leading order of the Fourier-domain response of Marsat & Baker (2018).
+leading order of the Fourier-domain response of Marsat & Baker (2018,
+arXiv:1806.10734).
 """
 function phenoma_arrival_delay(f::Real, p)
     (f <= 0 || f >= p.f_ring) && return 0.0

@@ -51,16 +51,26 @@ in one channel.
 sky_averaged_response(f::Real) = 0.3 / (1 + 0.6 * (f / F_STAR)^2)
 
 """
+    michelson_channel_psd(psd) -> callable
+
+``R(f)\\,\\mathrm{psd}(f)``: the noise PSD of one Michelson channel for the
+sensitivity `psd(f)` [Hz⁻¹] ([`sky_averaged_response`](@ref)). The
+constellation response of the simulator and the `"channel"` whitening PSD
+are built from it.
+"""
+michelson_channel_psd(psd) = f -> sky_averaged_response(f) * psd(f)
+
+"""
     channel_noise_psd(response, psd) -> callable
 
 One-sided noise PSD of each recorded channel for the sensitivity `psd(f)`
 [Hz⁻¹]: the sensitivity itself for [`SkyAveragedResponse`](@ref), and
-``R(f)\\,\\mathrm{psd}(f)`` ([`sky_averaged_response`](@ref)) for every
+``R(f)\\,\\mathrm{psd}(f)`` ([`michelson_channel_psd`](@ref)) for every
 constellation response, whose channel antenna patterns average to 3/10.
 """
 channel_noise_psd(::SkyAveragedResponse, psd) = psd
 
-channel_noise_psd(::AbstractDetectorResponse, psd) = f -> sky_averaged_response(f) * psd(f)
+channel_noise_psd(::AbstractDetectorResponse, psd) = michelson_channel_psd(psd)
 
 """
     draw_extrinsic(rng) -> NamedTuple

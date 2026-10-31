@@ -1,7 +1,7 @@
-# ext/MilliHertzBaseCairoMakieExt.jl — figures of the gravitational-wave
-# layer, loaded together with CairoMakie: classifier output and simulated
-# strain against mission time. Theme, legend and labelled bands come from
-# the figures of the domain-general layer.
+# Figures of the gravitational-wave layer, loaded together with
+# CairoMakie: window scores and simulated strain against mission time.
+# Theme, legend and labelled bands come from the figures of the
+# domain-general layer.
 module MilliHertzBaseCairoMakieExt
 
 using CairoMakie.Makie: Figure, Axis, with_theme, lines!, hlines!
@@ -13,7 +13,7 @@ import MilliHertzBase: figure_mission_trace, figure_telemetry_trace
 
 function figure_mission_trace(
     days::AbstractVector{<:Real},
-    probabilities::AbstractVector{<:Real},
+    scores::AbstractVector{<:Real},
     threshold::Real;
     labels::Union{Nothing,AbstractVector{<:Integer}} = nothing,
     max_points::Integer = 5000,
@@ -21,9 +21,8 @@ function figure_mission_trace(
     score_name::AbstractString = "Window score",
     score_range = nothing,
 )
-    n = length(probabilities)
-    n == length(days) ||
-        throw(DimensionMismatch("$(length(days)) times for $n probabilities."))
+    n = length(scores)
+    n == length(days) || throw(DimensionMismatch("$(length(days)) times for $n scores."))
     n >= 1 || throw(ArgumentError("the trace is empty."))
     idx = decimation(n, max_points)
     return with_theme(figure_theme(; size = figure_size(1))) do
@@ -33,7 +32,7 @@ function figure_mission_trace(
         lines!(
             axis,
             days[idx],
-            probabilities[idx];
+            scores[idx];
             color = FIGURE_COLORS.data,
             linewidth = 2,
             label = score_name,
@@ -47,7 +46,7 @@ function figure_mission_trace(
             label = "Threshold $(round(threshold; digits = 3))",
         )
         xlims!(axis, days[1], days[end] == days[1] ? days[1] + 1 : days[end])
-        ylims!(axis, score_limits(probabilities, threshold, score_range)...)
+        ylims!(axis, score_limits(scores, threshold, score_range)...)
         top_legend!(figure, axis; nbanks = 2)
         figure
     end

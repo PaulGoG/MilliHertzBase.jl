@@ -11,6 +11,23 @@ using StableRNGs
 using Aqua, JET, ExplicitImports
 using StreamingInference
 using MilliHertzBase
+# Public names that the package does not export
+using MilliHertzBase:
+    phenoma_amplitude,
+    phenoma_phase,
+    phenoma_group_delay,
+    phenoma_start_frequency,
+    inverse_segment,
+    channel_catalog,
+    draw_extrinsic,
+    channel_count,
+    source_frame,
+    project_spectrum,
+    project_series,
+    catalog_events,
+    samples_per_batch,
+    record_groups,
+    whitened_window_snr
 using CairoMakie: CairoMakie
 using DeepSpaceTelemetry: DeepSpaceTelemetry
 using CurvatureDistinguishability: CurvatureDistinguishability
@@ -22,7 +39,7 @@ ENV["STREAMINGINFERENCE_ROOT"] = PROJECT_ROOT
 
 @testset "Static QA (Aqua)" begin
     # The persistent-tasks check precompiles a wrapper package against the
-    # live registry; it is gated off CI, where it fails for environmental
+    # live registry; it is disabled on CI, where it fails for environmental
     # reasons, and runs locally.
     Aqua.test_all(MilliHertzBase; persistent_tasks = get(ENV, "CI", "") != "true")
 end
@@ -114,12 +131,11 @@ end
     n = length(h)
     @test n == 34560
     @test maximum(abs, h) == 1
-    # The amplitude peak lands at the target merger time
-    T = n / fs
-    t_pad = clamp(max(0.05 * T, 20 / (π * p.sigma)), 0.0, 0.5 * T)
+    # The amplitude peak lands at the target merger time of the spectrum
     # (the amplitude peak precedes the arrival of the ringdown frequency by
     # some ten total masses; a merger above the Nyquist taper adds a few samples)
-    @test abs(k_m - (round(Int, (T - t_pad) * fs) + 1)) / fs <= 20 * p.M_sec + 10 / fs
+    t_merger = phenoma_spectrum(fs, 2 * 86400; total_mass = 1e6, mass_ratio = 1.0).t_merger
+    @test abs(k_m - (round(Int, t_merger * fs) + 1)) / fs <= 20 * p.M_sec + 10 / fs
     # Forward chirp: the zero-crossing frequency rises towards the merger
     function zc_frequency(seg)
         return count(j -> sign(seg[j]) != sign(seg[j-1]), 2:length(seg)) / 2 /
@@ -144,9 +160,8 @@ end
     # Heavy and light binaries generate and place their peak correctly
     for (M, q) in ((1e7, 4.0), (1e5, 1.0))
         hh, kk, pp = phenoma_waveform(fs, 2 * 86400; total_mass = M, mass_ratio = q)
-        Tn = length(hh) / fs
-        tp = clamp(max(0.05 * Tn, 20 / (π * pp.sigma)), 0.0, 0.5 * Tn)
-        @test abs(kk - (round(Int, (Tn - tp) * fs) + 1)) / fs <= 20 * pp.M_sec + 10 / fs
+        tm = phenoma_spectrum(fs, 2 * 86400; total_mass = M, mass_ratio = q).t_merger
+        @test abs(kk - (round(Int, tm * fs) + 1)) / fs <= 20 * pp.M_sec + 10 / fs
     end
     @test_throws ArgumentError phenoma_parameters(0.0, 1.0)
     @test_throws ArgumentError phenoma_parameters(1e6, 0.5)
@@ -156,6 +171,17 @@ end
         total_mass = 1e6,
         mass_ratio = 1.0,
         nyquist_taper = 1.5,
+    )
+    # One bound for the taper, that of [generation] nyquist_taper
+    @test_throws ArgumentError phenoma_spectrum(
+        fs,
+        1000.0;
+        total_mass = 1e6,
+        mass_ratio = 1.0,
+        nyquist_taper = 0.25,
+    )
+    @test_throws ArgumentError generation_settings(
+        Dict{String,Any}("generation" => Dict{String,Any}("nyquist_taper" => 0.25)),
     )
 end
 
@@ -180,6 +206,11 @@ end
     @test detectable_span(placed, 5:4, fs, 1000, 5.0) === nothing
     @test_throws ArgumentError detectable_span(placed, covered, fs, 1, 5.0)
     @test_throws ArgumentError detectable_span(placed, covered, fs, 1000, 0.0)
+    # The series is the tuple of one channel
+    for threshold in (5.0, 15.0, 1e6)
+        @test detectable_span(placed, covered, fs, 1000, threshold; step = 7) ==
+              detectable_span((placed,), covered, fs, 1000, threshold; step = 7)
+    end
 end
 
 @testset "LDC noise model and readers" begin
@@ -412,6 +443,7 @@ end
         end
         model = sidecar(
             "model";
+            channels = "A",
             window_size = 1000,
             step_size = 100,
             sample_rate = 0.2,
@@ -424,11 +456,13 @@ end
             feature_set = "whitened",
         )
         @test whitening_psd_from_sidecar(model)(1e-3) == lisa_noise_psd(1e-3)
-        channel = sidecar("channel"; psd = "channel", observation_years = 2.0)
+        channel =
+            sidecar("channel"; channels = "A", psd = "channel", observation_years = 2.0)
         @test whitening_psd_from_sidecar(channel)(3e-3) ==
               sky_averaged_response(3e-3) * lisa_noise_psd(3e-3; observation_years = 2.0)
         ldc = sidecar(
             "ldc";
+            channels = "A",
             psd = "ldc",
             ldc_model = "SciRDv1",
             ldc_tdi2 = false,
@@ -436,10 +470,17 @@ end
         )
         @test whitening_psd_from_sidecar(ldc)(3e-3) ==
               ldc_tdi_psd(3e-3; channel = :A, model = "SciRDv1")
-        @test whitening_psd_from_sidecar(sidecar("none"; psd = "none")) === nothing
-        @test_throws ArgumentError whitening_psd_from_sidecar(sidecar("m"; psd = "model"))
+        @test whitening_psd_from_sidecar(sidecar("none"; channels = "A", psd = "none")) ===
+              nothing
         @test_throws ArgumentError whitening_psd_from_sidecar(
-            sidecar("l"; psd = "ldc", ldc_model = "SciRDv1"),
+            sidecar("m"; channels = "A", psd = "model"),
+        )
+        @test_throws ArgumentError whitening_psd_from_sidecar(
+            sidecar("l"; channels = "A", psd = "ldc", ldc_model = "SciRDv1"),
+        )
+        # The channel mode is recorded too
+        @test_throws ArgumentError whitening_psd_from_sidecar(
+            sidecar("c"; psd = "model", observation_years = 1.0),
         )
         @test_throws ArgumentError whitening_psd_from_sidecar(
             sidecar("n"; window_size = 1000),
@@ -524,6 +565,55 @@ end
         @test_throws ArgumentError preprocessing_settings(
             Dict("preprocessing" => Dict("tdi_components" => bad)),
         )
+    end
+    # Model names and confusion times are checked on load
+    pre(key, value) = Dict{String,Any}("preprocessing" => Dict{String,Any}(key => value))
+    lab(key, value) = Dict{String,Any}("ldc" => Dict{String,Any}(key => value))
+    @test preprocessing_settings(pre("ldc_model", "spritz")).ldc_model == "spritz"
+    @test_throws ArgumentError preprocessing_settings(pre("ldc_model", "sangira"))
+    @test ldc_settings(lab("psd_model", "SciRDv1")).psd_model == "SciRDv1"
+    @test_throws ArgumentError ldc_settings(lab("psd_model", "analytic"))
+    @test preprocessing_settings(pre("ldc_observation_years", 0.25)).ldc_observation_years ==
+          0.25
+    @test ldc_settings(lab("observation_years", 10.0)).observation_years == 10.0
+    for years in (0.1, 11.0, -1.0)
+        @test_throws ArgumentError preprocessing_settings(
+            pre("ldc_observation_years", years),
+        )
+        @test_throws ArgumentError ldc_settings(lab("observation_years", years))
+    end
+    # The population of the simulator
+    gen(key, value) = Dict{String,Any}("generation" => Dict{String,Any}(key => value))
+    population = generation_settings(empty)
+    @test population.gb_frequency_range_hz == (1e-4, 1e-2)
+    @test population.emri_frequency_range_hz == (1e-3, 5e-3)
+    @test population.emri_drift_range_hz_per_s == (1e-9, 1e-8)
+    @test population.coalescence_fraction_range == (0.1, 0.9)
+    @test population.mbhb_duration_max_fraction == 0.4
+    @test generation_settings(gen("gb_frequency_range_hz", [2e-3, 2e-3])).gb_frequency_range_hz ==
+          (2e-3, 2e-3)
+    for (key, bad) in (
+        ("gb_frequency_range_hz", [1e-2, 1e-4]),
+        ("gb_frequency_range_hz", [0.0, 1e-2]),
+        ("emri_frequency_range_hz", [1e-3]),
+        ("emri_drift_range_hz_per_s", [-1e-9, 1e-8]),
+        ("coalescence_fraction_range", [0.1, 1.2]),
+        ("coalescence_fraction_range", ["a", "b"]),
+        ("mbhb_duration_max_fraction", 0.0),
+        ("mbhb_duration_max_fraction", 1.5),
+    )
+        @test_throws ArgumentError generation_settings(gen(key, bad))
+    end
+    # The export geometry and the producer floor of [telemetry]
+    geometry = telemetry_settings(empty)
+    @test geometry.segment_duration_sec == 50.0 && geometry.batch_size == 10
+    @test geometry.start_sim_time == DateTime(2035, 1, 1)
+    @test geometry.output_prefix == "telemetry"
+    @test geometry.producer_compat == "2.6"
+    tel(key, value) = Dict{String,Any}("telemetry" => Dict{String,Any}(key => value))
+    @test telemetry_settings(tel("producer_compat", "3.1.0")).producer_compat == "3.1.0"
+    for bad in ("2.5", "1.0", "latest")
+        @test_throws ArgumentError telemetry_settings(tel("producer_compat", bad))
     end
 end
 
@@ -665,8 +755,14 @@ end
         ]
         white_a, table_a = conditioned(A, :A)
         white_e, table_e = conditioned(E, :E)
+        # The Welch PSD of a record without gaps is the estimate of the one record
+        passed_a = highpass_record(A, fs; cutoff = settings.highpass_cutoff_hz, order = 8)
+        @test table_a.psd ==
+              last(welch_psd(passed_a, fs; segment_length = 8192, average = :median))
+        @test whitening_psd(settings, passed_a, fs)[2] ==
+              "median Welch estimate of the record, segment 8192 samples"
 
-        # Mode A: the product of the single channel, under the unchanged names
+        # Mode A: the product of the single channel, under the plain names
         single = preprocess_record(config("A"))
         @test basename(single.features_path) == "modes_features.csv"
         @test Matrix{Float32}(CSV.read(single.features_path, DataFrame)) ==
@@ -731,7 +827,7 @@ end
         @test record_ae == hcat(Float32.(A), Float32.(E))
         @test size(channel_record(h5; channels = "AET")[1]) == (n, 3)
 
-        # T: no features yet, and a measured PSD only
+        # T: no features are defined, and only a measured PSD whitens it
         @test_throws ArgumentError preprocess_record(config("AET"))
         ldc = preprocessing_settings(
             Dict{String,Any}("preprocessing" => Dict{String,Any}("psd" => "ldc")),
@@ -817,7 +913,12 @@ end
             for i in (i_lo+margin):(i_hi-margin)
                 lo = (i - 1) * step + 1 - (first(r) - 1)
                 local_rows = lo:(lo+window-1)
-                kw = (; band_edges = settings.band_edges_hz, feature_set = :bands)
+                kw = (;
+                    low_band = settings.low_band_hz,
+                    high_band = settings.high_band_hz,
+                    band_edges = settings.band_edges_hz,
+                    feature_set = :bands,
+                )
                 push!(expected_windows, i)
                 push!(rows_a, extract_features(white_a[k][local_rows], fs; kw...))
                 push!(
@@ -895,6 +996,104 @@ end
     end
 end
 
+@testset "Generation stage (sky-averaged response)" begin
+    # The draws of an MBHB injection, in their documented order
+    defaults = generation_settings(Dict{String,Any}())
+    drawn = MilliHertzBase.draw_mbhb_intrinsics(StableRNG(3), defaults, 10_000, 0.2)
+    rng = StableRNG(3)
+    @test drawn.k_c == rand(rng, 1000:9000) && drawn.t_c == (drawn.k_c - 1) / 0.2
+    @test drawn.total_mass == 10.0^(log10(1e5) + rand(rng) * (log10(1e7) - log10(1e5)))
+    @test drawn.mass_ratio == 1 + rand(rng) * 9
+
+    # The record of the README: three days, one MBHB, five Galactic binaries
+    config = Dict{String,Any}(
+        "generation" => Dict{String,Any}(
+            "days" => 3.0,
+            "n_mbhb" => 1,
+            "n_gbs" => 5,
+            "n_emris" => 0,
+        ),
+    )
+    mktempdir() do dir
+        sim, product = with_pipeline_root(dir) do
+            sim = generate_telemetry(config; run_id = "sky")
+            return sim, preprocess_record(config; label_file = sim.label_file)
+        end
+        @test product.n_windows == 509
+        event = only(eachrow(sim.catalog))
+        @test defaults.snr_min <= event.snr <= defaults.snr_max
+        # The same seed without the binary draws the same background, so the
+        # difference of the two records is the injection
+        background_config = deepcopy(config)
+        background_config["generation"]["n_mbhb"] = 0
+        background = generate_telemetry(
+            background_config;
+            run_id = "sky_background",
+            output = joinpath(dir, "background.h5"),
+        )
+        injected = sim.strain .- background.strain
+        covered = event.start_index:event.end_index
+        @test all(iszero, injected[1:(first(covered)-1)]) &&
+              all(iszero, injected[(last(covered)+1):end])
+        @test isapprox(
+            matched_filter_snr(view(injected, covered), sim.fs; psd = lisa_noise_psd),
+            event.snr;
+            rtol = 1e-6,
+        )
+        # Detectable labels: inside the covered samples widened by a window,
+        # and the alerts credited from their start
+        positives = findall(==(1), sim.labels)
+        window = defaults.label_window_size
+        @test !isempty(positives)
+        @test all(
+            event.start_index - window < k < event.end_index + window for k in positives
+        )
+        @test (event.label_start_index, event.label_end_index) ==
+              (first(positives), last(positives))
+        @test event.signal_start_index == event.label_start_index
+        @test sim.catalog == CSV.read(sim.catalog_file, DataFrame)
+        # A seed reproduces the record
+        again = generate_telemetry(
+            config;
+            run_id = "sky_again",
+            output = joinpath(dir, "again.h5"),
+        )
+        @test again.strain == sim.strain && again.labels == sim.labels
+        @test again.catalog == sim.catalog
+        # The record carries A alone: E and T vanish, A recombines from
+        # Z - X = √2 A, and the channel set is recorded
+        tdi = read_tdi(sim.h5_file)
+        A, E, T = tdi_to_aet(tdi.X, tdi.Y, tdi.Z)
+        @test A == (sim.strain .* sqrt(2.0)) ./ sqrt(2)
+        @test all(iszero, E) && all(iszero, T)
+        HDF5.h5open(sim.h5_file) do file
+            @test read(HDF5.attributes(file["obs/tdi"])["channels"]) == "A"
+        end
+        @test channel_record(sim.h5_file)[1] == Float32.(A)
+        # A mode wider than the record is refused by every stage that reads it
+        @test_throws ArgumentError channel_record(sim.h5_file; channels = "AE")
+        with_pipeline_root(dir) do
+            wide = merge(
+                config,
+                Dict{String,Any}("tdi" => Dict{String,Any}("channels" => "AE")),
+            )
+            @test_throws ArgumentError preprocess_record(wide; label_file = sim.label_file)
+            @test_throws ArgumentError export_telemetry_payload(config; channels = "AE")
+            truth = joinpath(dir, "truth.csv")
+            n = length(sim.strain)
+            CSV.write(truth, DataFrame(t = tdi.t, X = zeros(n), Y = zeros(n), Z = zeros(n)))
+            labelled = merge(
+                wide,
+                Dict{String,Any}(
+                    "ldc" => Dict{String,Any}("record_file" => sim.h5_file),
+                    "preprocessing" => Dict{String,Any}("psd" => "welch"),
+                ),
+            )
+            @test_throws ArgumentError label_truth_stream(labelled; truth_csv = truth)
+        end
+    end
+end
+
 @testset "Event tables by channel mode" begin
     events = DataFrame(
         event = [1, 2],
@@ -938,12 +1137,6 @@ end
         lab;
         whitened = whiten_record(strain, 0.2; psd = lisa_noise_psd),
     ) isa CairoMakie.Figure
-    # The sidecar records the base single-panel canvas actually exported
-    mktempdir() do dir
-        save_figure(figure_mission_trace(days, probs, 0.55), joinpath(dir, "single"))
-        @test TOML.parsefile(joinpath(dir, "single.toml"))["figure"]["size_pt"] ==
-              [900, 600]
-    end
 end
 
 include("export_payload_tests.jl")

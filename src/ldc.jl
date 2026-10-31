@@ -1,7 +1,8 @@
-# LISA Data Challenge products: the analytic TDI noise model of
-# the `ldc` package (equal arms), readers of the compound HDF5 TDI datasets
-# and catalogues, the A/E/T combination, and the windowed matched-filter SNR
-# scan, SNR peaks, detectable spans and signal onsets of a truth stream. TDI variables are dimensionless
+# LISA Data Challenge products: the analytic TDI noise model of the `ldc`
+# package (equal arms), the readers of the compound HDF5 TDI datasets and
+# catalogues, the A/E/T combination and the channel record of a replay,
+# and the windowed SNR scan, SNR peaks, detectable spans and signal onsets
+# of a truth stream. TDI variables are dimensionless
 # fractional-frequency quantities; PSDs in Hz⁻¹. The analytic noise model is
 # ported from the LISA Data Challenge toolbox (MIT, Copyright (c) 2019 LISA);
 # see THIRD_PARTY_NOTICES.md.
@@ -22,6 +23,15 @@ const LDC_NOISE_LEVELS = Dict{String,NamedTuple{(:oms, :acc),NTuple{2,Float64}}}
     "sangria" => (oms = (7.9e-12)^2, acc = (2.4e-15)^2),
     "spritz" => (oms = (7.9e-12)^2, acc = (2.4e-15)^2),
 )
+
+"""
+    LDC_MODELS
+
+Names of the analytic noise models of [`LDC_NOISE_LEVELS`](@ref), sorted:
+the allowed values of `[preprocessing] ldc_model` and, beside `"record"`,
+of `[ldc] psd_model`.
+"""
+const LDC_MODELS = Tuple(sort!(collect(keys(LDC_NOISE_LEVELS))))
 
 """
     LDC_CONFUSION_FIT
@@ -137,6 +147,7 @@ S_T &= 16 S_\\mathrm{op} (1 - \\cos x) \\sin^2 x + 128 S_\\mathrm{pm} \\sin^2 x 
 ```
 
 and ``S_{XY} = -4 \\sin 2x \\sin x\\,(S_\\mathrm{op} + 4 S_\\mathrm{pm})``.
+These equal-arm first-generation PSDs are those the LDC labels TDI 1.5.
 `tdi2` multiplies by ``4 \\sin^2 2x`` (second-generation TDI); a positive
 `observation_years` adds [`ldc_confusion_psd`](@ref). The levels
 ``A_\\mathrm{acc}, A_\\mathrm{oms}`` come from [`LDC_NOISE_LEVELS`](@ref).
@@ -202,20 +213,76 @@ function tdi_to_aet(
 end
 
 """
+    recorded_channel_mode(path, group) -> Union{Nothing, String}
+
+The channel mode a simulated TDI record carries, the attribute `channels`
+of its TDI object (`"A"` or `"AE"`, written by [`generate_telemetry`](@ref)),
+or `nothing` when the object records none, as the LDC products. For a
+vector of components it is the narrowest mode any of them records.
+"""
+function recorded_channel_mode(path::AbstractString, group::AbstractString)
+    isfile(path) || throw(ArgumentError("HDF5 file not found: $path"))
+    return h5open(path, "r") do file
+        haskey(file, group) ||
+            throw(ArgumentError("$path holds no object at $(repr(group))."))
+        attrs = attributes(file[group])
+        haskey(attrs, "channels") ? String(read(attrs["channels"])) : nothing
+    end
+end
+
+function recorded_channel_mode(
+    path::AbstractString,
+    groups::AbstractVector{<:AbstractString},
+)
+    modes = filter(!isnothing, [recorded_channel_mode(path, g) for g in groups])
+    isempty(modes) && return nothing
+    return argmin(m -> length(channel_names(m)), modes)
+end
+
+"""
+    check_recorded_channels(path, group, mode)
+
+`ArgumentError` when the TDI object(s) `group` of `path` record a channel
+set ([`recorded_channel_mode`](@ref)) that lacks a channel of the mode
+`mode`. A record simulated on the A channel alone recombines to a null E
+and T, which no PSD of their own whitens. A product that records no
+channel set passes.
+"""
+function check_recorded_channels(
+    path::AbstractString,
+    group::Union{AbstractString,AbstractVector{<:AbstractString}},
+    mode::AbstractString,
+)
+    recorded = recorded_channel_mode(path, group)
+    recorded === nothing && return nothing
+    channel_names(mode) ⊆ channel_names(recorded) || throw(
+        ArgumentError(
+            "$path records the channels $(repr(recorded)) at $(repr(group)); the mode " *
+            "$(repr(mode)) needs $(join(channel_names(mode), ", ")).",
+        ),
+    )
+    return nothing
+end
+
+"""
     channel_record(path; group = "obs/tdi", channels = "A") -> (record, sample_rate)
 
 The channels of the mode `channels` of the TDI product `path` in single
 precision, as the payload export writes the A channel: a vector for the
 mode `"A"`, else a matrix with one column per channel in the order of
-[`channel_names`](@ref); and the sampling rate [Hz]. It is the content a
-[`ScheduledRecordRun`](@ref) serves along the delivery of a telemetry
+[`channel_names`](@ref); and the sampling rate [Hz]. `group` is one TDI
+object or a vector of component objects summed into the record
+([`read_tdi`](@ref)). A mode wider than the channel set a simulated record
+carries is refused ([`check_recorded_channels`](@ref)). It is the content
+a [`ScheduledRecordRun`](@ref) serves along the delivery of a telemetry
 mission that carried the A channel of the same product.
 """
 function channel_record(
     path::AbstractString;
-    group::AbstractString = "obs/tdi",
+    group::Union{AbstractString,AbstractVector{<:AbstractString}} = "obs/tdi",
     channels::AbstractString = "A",
 )
+    check_recorded_channels(path, group, channels)
     tdi = read_tdi(path; group = group)
     combinations = NamedTuple{(:A, :E, :T)}(tdi_to_aet(tdi.X, tdi.Y, tdi.Z))
     columns = [Float32.(combinations[c]) for c in channel_names(channels)]
@@ -277,7 +344,7 @@ their `X`, `Y` and `Z` streams, sample by sample, over their common span.
 The components must share the sampling step and the time samples; a longer
 component is trimmed to the shortest with a warning, and a NaN in any
 component is a NaN of the record. This is the layout of the LDC products
-shipped as component streams (instrument noise, confusion noise, one stream
+distributed as component streams (instrument noise, confusion noise, one stream
 per source), e.g. LDC-1b Yorsh.
 """
 function read_tdi(
@@ -466,8 +533,8 @@ Indices into `snr` of its local maxima at or above `threshold`, greedily
 accepted in decreasing order so that accepted peaks are at least
 `min_separation` samples apart (window starts `starts` are in samples).
 A peak that precedes a larger accepted peak by at most `precursor_window`
-samples while staying below `precursor_ratio` times its height is a
-fluctuation of that source's inspiral, not a merger, and is dropped. Used
+samples while staying below `precursor_ratio` times its height is taken
+for a fluctuation of that source's inspiral and dropped. Used
 to locate mergers in a truth stream without a catalogue.
 """
 function snr_peaks(

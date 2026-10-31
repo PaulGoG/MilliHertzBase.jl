@@ -9,12 +9,32 @@
 
 MilliHertzBase.jl is the gravitational-wave layer of a set of three Julia
 packages for the analysis of telemetry of the Laser Interferometer Space
-Antenna (LISA): everything specific to LISA and to massive black hole
-binaries, and nothing of the detection method. It builds on
+Antenna (LISA). It holds the code specific to LISA and to massive black
+hole binaries; the detection methods belong to the packages built on it.
+It builds on
 [StreamingInference.jl](https://github.com/PaulGoG/StreamingInference.jl),
 which holds the domain-general streaming, conditioning and evaluation code,
 and [MilliHertzQML.jl](https://github.com/PaulGoG/MilliHertzQML.jl), a
 variational quantum classifier, builds on both.
+
+## Layout
+
+```
+MilliHertzBase.jl/
+├── activate.jl                 # activates and instantiates the package environment
+├── src/
+│   ├── MilliHertzBase.jl       # module and public names
+│   ├── noise.jl                # LISA sensitivity (Robson, Cornish & Liu 2019)
+│   ├── waveforms.jl            # IMRPhenomA
+│   ├── response.jl             # detector response
+│   ├── ldc.jl                  # LDC products, TDI channels, analytic TDI noise
+│   └── stages/                 # generation, pre-processing, labelling, payload export
+├── ext/                        # CurvatureDistinguishability and CairoMakie extensions
+├── test/                       # suite with static QA, own environment
+└── docs/                       # Documenter manual, own environment
+```
+
+## Contents
 
 LISA observes gravitational waves through time-delay interferometry (TDI):
 combinations of the phase measurements on the laser links between its
@@ -49,54 +69,34 @@ doi:10.1103/PhysRevD.66.122002). The package holds
 
 [DeepSpaceTelemetry.jl](https://github.com/PaulGoG/DeepSpaceTelemetry.jl)
 simulates the telemetry downlink of a spacecraft: ground-station passes,
-packet loss and retransmission, and an on-board recorder. The export
-stage writes the A channel as one payload column `Amplitude`, or the
-columns `A`, `E` (and `T`) of several channels, which the producer (2.6
-or later) carries as one payload. The manual is built from `main` at
+packet loss and retransmission, and an on-board recorder. The manual is
+built from `main` at
 [PaulGoG.github.io/MilliHertzBase.jl/dev](https://PaulGoG.github.io/MilliHertzBase.jl/dev/).
-
-## Layout
-
-```
-MilliHertzBase.jl/
-├── activate.jl                 # activates and instantiates the package environment
-├── src/
-│   ├── MilliHertzBase.jl       # module and public names
-│   ├── noise.jl                # LISA sensitivity (Robson, Cornish & Liu 2019)
-│   ├── waveforms.jl            # IMRPhenomA
-│   ├── response.jl             # detector response
-│   ├── ldc.jl                  # LDC products, TDI channels, analytic TDI noise
-│   └── stages/                 # generation, pre-processing, labelling, payload export
-├── ext/                        # CurvatureDistinguishability and CairoMakie extensions
-├── test/                       # suite with static QA, own environment
-└── docs/                       # Documenter manual, own environment
-```
-
-The full tree is at the end of this page.
 
 ## Installation
 
-The package requires Julia 1.13 or later and is not registered; its first
-release is 0.1.0 (tag `v0.1.0`, 15 October 2026). It depends on
-StreamingInference.jl 0.1.0, unregistered too, at the commit recorded
+The package requires Julia 1.13 or later and is not registered; its current
+release is 0.2.0 (tag `v0.2.0`, 31 October 2026). It depends on
+StreamingInference.jl 0.2.0, unregistered too, at the commit recorded
 under `[sources]` in `Project.toml`. Most uses, the examples below among
 them, also load StreamingInference directly, so an environment adds it
 first, at its release tag, and MilliHertzBase after it:
 
 ```julia
 using Pkg
-Pkg.add(url = "https://github.com/PaulGoG/StreamingInference.jl", rev = "v0.1.0")
-Pkg.add(url = "https://github.com/PaulGoG/MilliHertzBase.jl", rev = "v0.1.0")  # the release
+Pkg.add(url = "https://github.com/PaulGoG/StreamingInference.jl", rev = "v0.2.0")
+Pkg.add(url = "https://github.com/PaulGoG/MilliHertzBase.jl", rev = "v0.2.0")  # the release
 Pkg.add(url = "https://github.com/PaulGoG/MilliHertzBase.jl")                  # main
 ```
 
-The
-extension for
+The extension for
 [CurvatureDistinguishability.jl](https://github.com/PaulGoG/CurvatureDistinguishability.jl)
-(the constellation response) loads when that package, unregistered too,
-is added by URL, and runs of DeepSpaceTelemetry open once it is added the
-same way, `Pkg.add(url = "https://github.com/PaulGoG/DeepSpaceTelemetry.jl")`;
-the figures need `CairoMakie` in the same environment. If your git
+(the constellation response) loads when that package, also unregistered,
+is added by URL. Runs of DeepSpaceTelemetry open once its reader package
+is added the same way,
+`Pkg.add(url = "https://github.com/PaulGoG/DeepSpaceTelemetry.jl", subdir = "reader")`,
+or the whole producer without `subdir`. The figures need `CairoMakie` in
+the same environment. If your git
 configuration rewrites GitHub URLs to SSH, set `JULIA_PKG_USE_CLI_GIT=true`
 so that Pkg clones through the git command line.
 
@@ -142,7 +142,9 @@ Each stage takes the parsed configuration: `load_config(path)` of a TOML
 file, or a `Dict`. A missing key takes the default of the settings
 function of its section (`generation_settings`, `preprocessing_settings`,
 `ldc_settings`, `telemetry_settings`, `tdi_settings`), which validates the
-section and refuses a value it cannot honour. Relative paths resolve
+section and refuses a value it cannot honour. The docstring of each
+settings function tabulates the keys of its section with their defaults,
+units and allowed values (API reference of the manual). Relative paths resolve
 against the pipeline root of StreamingInference.jl: the directory set by
 `with_pipeline_root`, else the environment variable
 `STREAMINGINFERENCE_ROOT`, else the nearest directory above the active
@@ -152,9 +154,9 @@ the stages from the command line are those of MilliHertzQML.jl.
 The observed record is the HDF5 object `[preprocessing] tdi_group`, or,
 when `[preprocessing] tdi_components` lists several objects, their sum
 sample by sample over their common span: the layout of the LDC products
-shipped as component streams, such as LDC-1b Yorsh (instrument noise,
-confusion noise, one stream per source). `--tdi-group` of the scripts names
-one object and overrides the list.
+distributed as component streams, such as LDC-1b Yorsh (instrument noise,
+confusion noise, one stream per source). The keyword `tdi_group` of the
+stages names one object and overrides the list.
 
 A simulated record of three days with one massive black hole binary,
 generated and pre-processed under a temporary pipeline root:
@@ -180,12 +182,11 @@ The export stage writes the payload the DeepSpaceTelemetry producer
 ingests: under `[tdi] channels = "A"` the A channel as its one column
 `Amplitude`, and under `"AE"` or `"AET"` the columns `A`, `E` (and `T`),
 which the producer (2.6 or later) carries as one payload under one link
-accounting — one batch, one transfer, one loss for all of them. Reading a
-run of the producer back is not specific to gravitational waves, so it
-lives in StreamingInference.jl, whose DeepSpaceTelemetry extension builds
-on the producer's reference run adapter; `open_telemetry_run` is
-re-exported here, and its `columns` keyword selects the payload columns of
-a run that carries several. A mission that carried the A channel alone is
+accounting. Reading a run of the producer back is not specific to
+gravitational waves, so it lives in StreamingInference.jl, whose
+DeepSpaceTelemetryReader extension builds on the producer's reference run
+adapter; `open_telemetry_run` is re-exported here, and its `columns`
+keyword selects the payload columns of a run that carries several. A mission that carried the A channel alone is
 replayed on A and E through StreamingInference's `ScheduledRecordRun`,
 which serves every delivered batch from the TDI record (`channel_record`)
 after checking its A column against the payload.
@@ -193,15 +194,22 @@ after checking its A column against the payload.
 `telemetry_settings` also validates the replay settings of `[telemetry]`:
 the persistence of an alert (`alert_persistence`), the confirmation tier
 (`alert_confirmation_persistence`, 0 or above both `alert_persistence` and
-the overlap `window_size ÷ step_size` of the `[preprocessing]` windows) and
-the crediting (`alert_crediting`), which the replay scripts of
-MilliHertzQML.jl pass to `alert_latency_table` of StreamingInference.jl.
+the overlap `window_size ÷ step_size` of the `[preprocessing]` windows),
+the crediting (`alert_crediting`) and the oldest producer accepted
+(`producer_compat`, a version string of 2.6.0 or later), which the replay
+scripts of MilliHertzQML.jl pass to StreamingInference.jl.
 
 ## Status
 
-The first release is 0.1.0 (tag `v0.1.0`, 15 October 2026), which
-MilliHertzQML.jl 3.0.0 pins by commit; install by URL at the tag, or
-follow `main`, as above.
+The four stages, the readers of the LDC products and the noise, waveform
+and response models are those MilliHertzQML.jl runs on, and the test
+suite covers each. The pre-processing stage works on the A channel and on
+the A and E network; the mode `"AET"` is labelled and exported but not
+pre-processed, since no features of the T channel are defined. A simulated
+record carries the channel set it was generated with, and the stages
+refuse a wider mode on it. The constellation response
+(`[generation] response = "lisa"`) needs the CurvatureDistinguishability
+extension.
 
 ## Full file tree
 
@@ -263,7 +271,7 @@ MilliHertzBase.jl/
 @software{Gogita_MilliHertzBase_jl,
   author  = {Gogîță, Paul-Adrian},
   title   = {{MilliHertzBase.jl}},
-  version = {0.1.0},
+  version = {0.2.0},
   url     = {https://github.com/PaulGoG/MilliHertzBase.jl},
   year    = {2026}
 }

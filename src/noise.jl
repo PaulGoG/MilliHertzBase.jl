@@ -25,7 +25,7 @@ const F_STAR = C_LIGHT / (2π * L_ARM)
 """
     CONFUSION_AMPLITUDE
 
-Amplitude ``A`` [Hz⁻¹] of the galactic confusion fit of Robson, Cornish & Liu
+Amplitude ``A`` [Hz⁻¹] of the Galactic confusion fit of Robson, Cornish & Liu
 (2019), Eq. 14.
 """
 const CONFUSION_AMPLITUDE = 9e-45
@@ -33,7 +33,7 @@ const CONFUSION_AMPLITUDE = 9e-45
 """
     CONFUSION_FIT_PARAMETERS
 
-Fit parameters ``(\\alpha, \\beta, \\kappa, \\gamma, f_k)`` of the galactic
+Fit parameters ``(\\alpha, \\beta, \\kappa, \\gamma, f_k)`` of the Galactic
 confusion foreground (Robson, Cornish & Liu 2019, Table 1), keyed by the
 observation time in years over which resolvable binaries are assumed
 subtracted. ``f_k`` in Hz.
@@ -147,7 +147,7 @@ qualifying windows form one interval; `nothing` when no window qualifies.
 This is the span over which an optimal filter operating on single windows
 sees the injection, and the default positive-label span of the simulator.
 """
-function detectable_span(
+detectable_span(
     placed::AbstractVector{<:Real},
     covered::AbstractUnitRange{<:Integer},
     fs::Real,
@@ -155,28 +155,7 @@ function detectable_span(
     threshold::Real;
     step::Integer = 10,
     psd = lisa_noise_psd,
-)
-    window_size >= 2 ||
-        throw(ArgumentError("window_size = $window_size; must be at least 2."))
-    step >= 1 || throw(ArgumentError("step = $step; must be at least 1."))
-    threshold > 0 || throw(ArgumentError("threshold = $threshold; must be positive."))
-    isempty(covered) && return nothing
-    n = length(placed)
-    lo = max(1, first(covered) - window_size + 1)
-    hi = min(n - window_size + 1, last(covered))
-    lo <= hi || return nothing
-    first_positive = typemax(Int)
-    last_positive = 0
-    for s in lo:step:hi
-        ρ = matched_filter_snr(view(placed, s:(s+window_size-1)), fs; psd = psd)
-        if ρ >= threshold
-            first_positive = min(first_positive, s)
-            last_positive = max(last_positive, s + window_size - 1)
-        end
-    end
-    last_positive == 0 && return nothing
-    return first_positive:last_positive
-end
+) = detectable_span((placed,), covered, fs, window_size, threshold; step = step, psd = psd)
 
 """
     detectable_span(channels::Tuple, covered, fs, window_size, threshold;
@@ -198,15 +177,6 @@ function detectable_span(
     psd = lisa_noise_psd,
 )
     isempty(channels) && throw(ArgumentError("at least one channel is required."))
-    length(channels) == 1 && return detectable_span(
-        channels[1],
-        covered,
-        fs,
-        window_size,
-        threshold;
-        step = step,
-        psd = psd,
-    )
     window_size >= 2 ||
         throw(ArgumentError("window_size = $window_size; must be at least 2."))
     step >= 1 || throw(ArgumentError("step = $step; must be at least 1."))
@@ -221,15 +191,24 @@ function detectable_span(
     first_positive = typemax(Int)
     last_positive = 0
     for s in lo:step:hi
-        ρ² = 0.0
-        for c in channels
-            ρ² += matched_filter_snr(view(c, s:(s+window_size-1)), fs; psd = psd)^2
-        end
-        if ρ² >= threshold^2
+        if window_reaches(channels, s:(s+window_size-1), fs, threshold, psd)
             first_positive = min(first_positive, s)
             last_positive = max(last_positive, s + window_size - 1)
         end
     end
     last_positive == 0 && return nothing
     return first_positive:last_positive
+end
+
+# Whether the window `rows` of the channels reaches `threshold`: the SNR of
+# one channel, the quadrature sum of the SNRs of several (compared squared)
+window_reaches(channels::Tuple{AbstractVector{<:Real}}, rows, fs, threshold, psd) =
+    matched_filter_snr(view(only(channels), rows), fs; psd = psd) >= threshold
+
+function window_reaches(channels::Tuple, rows, fs, threshold, psd)
+    ρ² = 0.0
+    for c in channels
+        ρ² += matched_filter_snr(view(c, rows), fs; psd = psd)^2
+    end
+    return ρ² >= threshold^2
 end

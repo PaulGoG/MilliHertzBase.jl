@@ -10,6 +10,10 @@ lcov.info
 docs/build/
 docs/site/
 
+# Pipeline outputs under the default root (`[paths]`, `[generation] output`)
+/data/
+/models/
+
 # OS artifacts
 .DS_Store
 ._*

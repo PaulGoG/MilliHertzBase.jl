@@ -2,7 +2,7 @@
 # CairoMakie extension).
 
 """
-    figure_mission_trace(days, probabilities, threshold; labels = nothing,
+    figure_mission_trace(days, scores, threshold; labels = nothing,
                          max_points = 5000, score_label = "Score",
                          score_name = "Window score", score_range = nothing) -> Figure
 

@@ -52,7 +52,6 @@ function tick_mission(dir, run_id, fragment_path)
         ),
         "post_processing" => Dict{String,Any}(
             "generate_mask_timeline" => false,
-            "expand_to_pointwise_masks" => false,
             "alert_latency" => false,
             "delivery_delay" => false,
             "hdf5_export" => false,
@@ -62,17 +61,12 @@ function tick_mission(dir, run_id, fragment_path)
     path = joinpath(dir, "$run_id.toml")
     open(io -> TOML.print(io, scenario), path, "w")
     cfg = TelemetryCore.tick_configuration(TelemetryCore.load_config(path))
-    previous = TelemetryCore.DATA_ROOT[]
-    TelemetryCore.DATA_ROOT[] = joinpath(dir, "producer")
-    try
-        return DeepSpaceTelemetry.Supervisor.run_mission(
-            cfg;
-            run_id = run_id,
-            orig_stdout = devnull,
-        )
-    finally
-        TelemetryCore.DATA_ROOT[] = previous
-    end
+    return DeepSpaceTelemetry.Supervisor.run_mission(
+        cfg;
+        run_id = run_id,
+        orig_stdout = devnull,
+        data_root = joinpath(dir, "producer"),
+    )
 end
 
 @testset "Telemetry coupling (exported payload, DeepSpaceTelemetry run)" begin
@@ -122,11 +116,13 @@ end
         @test geometry.start_sim_time == start && geometry.payload_rows == n
         descriptor = run_descriptor(run)
         @test descriptor["mode"] == "tick"
-        # The producer's identity of its code (2.6.1): the tree hash and the
+        # The producer's identity of its code: the tree hash and the
         # dirty flag key it, the commit is recorded for a copy installed by
         # commit, as this environment pins it
         @test occursin(r"^[0-9a-f]{40}$", descriptor["git_tree_sha1"])
-        @test descriptor["git_dirty"] == false
+        # The producer's claim, passed through; 3.1.0 stamps an installed copy
+        # dirty, since its directory hash leaves out the tracked data/ root
+        @test descriptor["git_dirty"] isa Bool
         @test occursin(r"^[0-9a-f]{40}$", descriptor["git_commit"])
         delivered = filter(b -> b.state == :ground, list_batches(run))
         b = first(delivered)

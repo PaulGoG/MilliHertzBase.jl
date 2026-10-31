@@ -1,10 +1,10 @@
-# ext/MilliHertzBaseCurvatureDistinguishabilityExt.jl — constellation response
-# of the simulator on CurvatureDistinguishability.jl: the antenna patterns of
-# the noise-orthogonal A and E channels on the analytic LISA orbits, the
-# orbital Doppler phase and the finite-arm transfer roll-off, applied to the
-# waveforms this package generates. Only the response comes from that package; the
-# inspiral–merger–ringdown amplitude and phase stay in src/waveforms.jl and
-# the channel noise follows the sensitivity model of src/noise.jl.
+# Constellation response of the simulator on CurvatureDistinguishability.jl:
+# the antenna patterns of the noise-orthogonal A and E channels on the
+# analytic LISA orbits, the orbital Doppler phase and the finite-arm
+# transfer roll-off, applied to the waveforms this package generates. Only
+# the response comes from that package; the inspiral–merger–ringdown
+# amplitude and phase stay in src/waveforms.jl and the channel noise follows
+# the sensitivity model of src/noise.jl.
 module MilliHertzBaseCurvatureDistinguishabilityExt
 
 using CurvatureDistinguishability: waveform_params
@@ -18,7 +18,8 @@ import MilliHertzBase:
     LisaResponse
 
 Constellation response on the analytic equal-arm orbits of Rubbo, Cornish
-& Poujade (2004) as implemented by CurvatureDistinguishability: arm length
+& Poujade (2004, doi:10.1103/PhysRevD.69.082003) as implemented by
+CurvatureDistinguishability: arm length
 [m], and the orbital and cartwheel phases of the constellation at the
 record start [rad]. Built by [`MilliHertzBase.lisa_response`](@ref).
 """

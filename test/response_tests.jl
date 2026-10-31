@@ -1,4 +1,4 @@
-# test/response_tests.jl — constellation response of the simulator through
+# Constellation response of the simulator through
 # the CurvatureDistinguishability extension: the normalisation of the
 # antenna patterns taken from that package, the polarisation and inclination
 # conventions of the projection, and an end-to-end two-channel record.
@@ -224,6 +224,9 @@
             @test A ≈ result.channels.A rtol = 1e-12
             @test E ≈ result.channels.E rtol = 1e-12
             @test maximum(abs, T) < 1e-14 * maximum(abs, A)
+            # The record carries A and E, and T is refused
+            @test size(channel_record(result.h5_file; channels = "AE")[1]) == (length(A), 2)
+            @test_throws ArgumentError channel_record(result.h5_file; channels = "AET")
             catalog = result.catalog
             @test nrow(catalog) == 2
             for column in (

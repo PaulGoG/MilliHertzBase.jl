@@ -1,13 +1,14 @@
 # MilliHertzBase.jl
 
-Gravitational-wave layer for the analysis of telemetry of the Laser
-Interferometer Space Antenna (LISA), built on the domain-general
-[StreamingInference.jl](https://github.com/PaulGoG/StreamingInference.jl):
-noise models, waveforms and detector response for massive black hole
-binaries, the products of the LISA Data Challenge (LDC), the pipeline
-stages that turn them into labelled, whitened records, and the payload of
-the DeepSpaceTelemetry producer, a simulator of the telemetry downlink of
-a spacecraft. LISA observes through time-delay interferometry (TDI),
+MilliHertzBase.jl is the gravitational-wave layer for the analysis of
+telemetry of the Laser Interferometer Space Antenna (LISA), built on the
+domain-general
+[StreamingInference.jl](https://github.com/PaulGoG/StreamingInference.jl).
+It provides noise models, waveforms and the detector response for massive
+black hole binaries, readers of the products of the LISA Data Challenge
+(LDC), the pipeline stages that turn them into labelled, whitened records,
+and the payload of the DeepSpaceTelemetry producer, a simulator of the
+telemetry downlink of a spacecraft. LISA observes through time-delay interferometry (TDI),
 combinations of its laser links, time-shifted by the light travel times
 along the arms, in which the laser frequency noise cancels.
 
@@ -18,23 +19,23 @@ along the arms, in which the laser frequency noise cancels.
 | Detector response | `AbstractDetectorResponse`, `SkyAveragedResponse`, `detector_response`; the constellation response `lisa_response` through the CurvatureDistinguishability extension |
 | LDC products | `read_tdi` (one object, or the sum of the component streams named by `[preprocessing] tdi_components`), `tdi_to_aet`, `read_catalog`, `catalog_events`, `whitening_psd`, `whitening_psd_from_sidecar` |
 | Labels | `windowed_snr`, `whitened_window_snr`, `snr_peaks`, `detectable_span`, `detectable_spans`, `signal_onsets` |
-| Stages | `generate_telemetry`, `preprocess_record`, `label_truth_stream`, `export_telemetry_payload`, each driven by a TOML configuration (`generation_settings`, `preprocessing_settings`, `ldc_settings`, `telemetry_settings`, `tdi_settings`); the labelling measures the signal onset against the noise of the observed record (`[ldc] psd_model = "record"`, the default) or against an analytic TDI noise model |
+| Stages | `generate_telemetry`, `preprocess_record`, `label_truth_stream`, `export_telemetry_payload`, each driven by a TOML configuration (`generation_settings`, `preprocessing_settings`, `ldc_settings`, `telemetry_settings`, `tdi_settings`, whose docstrings tabulate the keys); the labelling measures the signal onset against the noise of the observed record (`[ldc] psd_model = "record"`, the default) or against an analytic TDI noise model |
 | Channel modes | `[tdi] channels = "A" \| "AE" \| "AET"` (`tdi_settings`, `channel_names`, `channel_suffix`), recorded in every product; `channel_record`, `mode_events` for the replay of several channels |
-| Telemetry producer | `export_telemetry_payload`: the A channel as one column `Amplitude`, or under `"AE"` and `"AET"` the columns `A`, `E` (and `T`) under one link accounting (DeepSpaceTelemetry 2.6 or later); the runs are read by StreamingInference's DeepSpaceTelemetry extension (`open_telemetry_run`, re-exported, `columns` selecting the payload columns) |
+| Telemetry producer | `export_telemetry_payload`: the A channel as one column `Amplitude`, or under `"AE"` and `"AET"` the columns `A`, `E` (and `T`) under one link accounting (DeepSpaceTelemetry 2.6 or later); the runs are read by StreamingInference's DeepSpaceTelemetryReader extension (`open_telemetry_run`, re-exported, `columns` selecting the payload columns) |
 | Extensions | CurvatureDistinguishability (constellation response), CairoMakie (`figure_mission_trace`, `figure_telemetry_trace`) |
 
-## Installation and status
+## Installation
 
-The package requires Julia 1.13 or later and is not registered; its first
-release is 0.1.0 (tag `v0.1.0`, 15 October 2026). An environment adds
+The package requires Julia 1.13 or later and is not registered; its current
+release is 0.2.0 (tag `v0.2.0`, 31 October 2026). An environment adds
 StreamingInference.jl by URL at its release tag (the commit recorded under
 `[sources]` in `Project.toml`), then this package at its tag or following
 `main`:
 
 ```julia
 using Pkg
-Pkg.add(url = "https://github.com/PaulGoG/StreamingInference.jl", rev = "v0.1.0")
-Pkg.add(url = "https://github.com/PaulGoG/MilliHertzBase.jl", rev = "v0.1.0")  # the release
+Pkg.add(url = "https://github.com/PaulGoG/StreamingInference.jl", rev = "v0.2.0")
+Pkg.add(url = "https://github.com/PaulGoG/MilliHertzBase.jl", rev = "v0.2.0")  # the release
 Pkg.add(url = "https://github.com/PaulGoG/MilliHertzBase.jl")                  # main
 ```
 
@@ -48,22 +49,30 @@ in its sidecar (`[product] channels`).
 - `"A"`, the default: the single channel A, under product stems without a
   suffix.
 - `"AE"`: [`preprocess_record`](@ref) whitens A and E each by its own
-  power spectral density (PSD) and combines the features of the two channels into as many as the A mode
-  has; the product stems gain `_ae`. `[preprocessing] channel_combination`
-  selects the combination: `"max"` (default) keeps of every feature the
-  value farthest towards a signal — the larger band power and spread, the
-  smaller entropy — so that a source one channel sees is not diluted by the
-  other; `"mean"` takes the features of the averaged periodogram, the excess
-  power of the network, which is the better statistic only for a source
-  split equally between the channels. [`label_truth_stream`](@ref) adds the
-  onset of a detector that reads both channels, from the network
-  signal-to-noise ratio (SNR) ``\rho_{AE}^2 = \rho_A^2 + \rho_E^2`` (orthogonal noise, Prince et al.
-  2002, doi:10.1103/PhysRevD.66.122002), as `signal_start_index_ae`.
+  power spectral density (PSD) and combines the features of the two
+  channels into as many features as the A mode has; the product stems
+  gain `_ae`. `[preprocessing] channel_combination` selects the
+  combination: `"max"` (default) keeps of every feature the value farthest
+  towards a signal — the larger band power and spread, the smaller
+  entropy — so that a source one channel sees is not diluted by the other;
+  `"mean"` takes the features of the averaged periodogram, the excess power
+  of the network, which is the better statistic only for a source split
+  equally between the channels. [`label_truth_stream`](@ref) adds the onset
+  of a detector that reads both channels, from the network signal-to-noise
+  ratio (SNR) ``\rho_{AE}^2 = \rho_A^2 + \rho_E^2`` (orthogonal noise,
+  Prince et al. 2002, doi:10.1103/PhysRevD.66.122002), as
+  `signal_start_index_ae`.
 - `"AET"`: no features of the T channel are defined, and the
   pre-processing refuses the mode; the labelling stage sets the
   three-channel onset to the AE onset and records that it did, and the
   payload export writes the column `T`. The response of T to gravitational
   waves is strongly suppressed relative to A and E below about 10 mHz.
+
+A record simulated by [`generate_telemetry`](@ref) carries the channel set
+it was generated with, the attribute `channels` of `obs/tdi`: `"A"` under
+the sky-averaged response, whose single strain recombines to a null E and
+T, and `"AE"` under the constellation response. The pre-processing, the
+payload export and [`channel_record`](@ref) refuse a wider mode on it.
 
 The signal onset from which alerts are credited is the first window in
 which the truth stream reaches `[ldc] label_snr_threshold`, 3 by default.
@@ -74,8 +83,8 @@ own PSD, the Galactic foreground included — and the SNR of a window is
 the norm of the whitened signal in it: the signal as the detector sees
 it, against the noise it faces. With the name of an analytic TDI PSD
 (`"sangria"`, `"spritz"`, …) the window SNR is the matched-filter SNR of
-the raw truth against that instrument noise; a threshold of 5 there
-corresponds to about 3 against the record.
+the raw truth against that instrument noise; on the Sangria blind year a
+threshold of 5 there corresponds to about 3 against the record.
 
 A record with gaps — samples marked `NaN`, as in the LDC-2b (Spritz)
 products — is pre-processed stretch by stretch: every stretch between two

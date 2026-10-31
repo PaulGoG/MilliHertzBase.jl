@@ -1,13 +1,14 @@
-# Labelling stage: point-wise MBHB labels of an LDC
-# product from its signal-only truth stream. The A channel of the truth
-# stream is scanned with the windowed matched-filter SNR against the
-# analytic TDI PSD or, under psd_model = "record", conditioned as the
-# pre-processing conditions the observed record and scanned with the norm
-# of the whitened signal per window; mergers come from the source catalogue when the product
-# carries one and from SNR peaks otherwise; the positive span of every
-# merger is either the fixed window of Isfan et al. (2025) or the union of
-# windows in which the source is detectable; with fixed spans the event
-# table also records the signal onset from which alerts are credited.
+# Labelling stage: point-wise MBHB labels of an LDC product from its
+# signal-only truth stream. The A channel of the truth stream is scanned
+# with the windowed matched-filter SNR against the analytic TDI PSD or,
+# under psd_model = "record", conditioned as the pre-processing conditions
+# the observed record and scanned with the norm of the whitened signal per
+# window; mergers come from the source catalogue when the product carries
+# one and from SNR peaks otherwise; the positive span of every merger is
+# either the fixed window of Isfan et al. (2025,
+# doi:10.1088/1361-6382/ae1787) or the union of windows in which the source
+# is detectable; with fixed spans the event table also records the signal
+# onset from which alerts are credited.
 
 """
     read_truth_csv(path) -> NamedTuple
@@ -162,7 +163,8 @@ detector sees it, against the noise it faces, the Galactic foreground
 included. The network SNR of A and E for a mode other than `"A"` is formed
 as in [`analytic_truth_snr`](@ref). The record must share the sampling
 frequency `fs` of the truth stream; `[preprocessing] psd = "none"` is
-refused.
+refused, as is a mode other than `"A"` on a simulated record that carries
+the A channel alone ([`check_recorded_channels`](@ref)).
 """
 function record_truth_snr(
     A::AbstractVector{<:Real},
@@ -180,6 +182,7 @@ function record_truth_snr(
             "observed record; [preprocessing] psd = \"none\" provides none.",
         ),
     )
+    check_recorded_channels(record_path, record_groups(pre), mode == "A" ? "A" : "AE")
     tdi = read_tdi(record_path; group = record_groups(pre))
     isapprox(1 / tdi.dt, fs; rtol = 1e-9) || throw(
         ArgumentError(
@@ -236,17 +239,17 @@ of `truth_csv` ([`read_truth_csv`](@ref)) — is combined into the A channel
 or, for `psd_model = "record"`, conditioned as the pre-processing stage
 conditions the observed record (`record_file`, else the configured
 `[ldc] record_file`, else the file of the truth stream) and scanned with
-the norm of the whitened signal per window ([`record_truth_snr`](@ref)):
-the signal as the detector sees it, against the noise it faces, the
-Galactic foreground included. Mergers are the catalogue's
-coalescence times when a catalogue is available and SNR peaks otherwise
-([`merger_indices_from_peaks`](@ref)); their positive spans are the fixed
+the norm of the whitened signal per window ([`record_truth_snr`](@ref)).
+Mergers are the catalogue's coalescence times when a catalogue is
+available and SNR peaks otherwise ([`merger_indices_from_peaks`](@ref)); their positive spans are the fixed
 window `[-label_before_sec, +label_after_sec]` ([`fixed_spans`](@ref)) or
 the union of windows reaching `label_snr_threshold`
 ([`detectable_spans`](@ref)) according to `label_span`. Every parameter
 comes from the `[ldc]`, `[paths]`, and `[resources]` sections of `config`
 ([`ldc_settings`](@ref)); `h5_file` and `truth_csv` are mutually exclusive
-and replace the configured `h5_file`.
+and replace the configured `h5_file`. The memory pre-flight
+([`check_memory`](@ref)) precedes the read of the truth stream and of the
+record.
 
 Under `[tdi] channels = "AE"` ([`tdi_settings`](@ref)) the event table also
 carries the onset of a detector that reads A and E: the E channel is
@@ -296,35 +299,8 @@ function label_truth_stream(
             )
             h5_file = settings.h5_file
         end
-
-        # Truth stream and catalogue
-        local truth, catalog, source
-        if h5_file !== nothing
-            source = resolvepath(h5_file)
-            truth = read_tdi(source; group = settings.truth_group)
-            catalog = read_catalog(source; group = settings.catalog_group)
-        elseif truth_csv !== nothing
-            source = resolvepath(truth_csv)
-            truth = read_truth_csv(source)
-            catalog = nothing
-        else
-            throw(ArgumentError("no truth source: pass h5_file or truth_csv."))
-        end
-        n = length(truth.t)
-        fs = 1 / truth.dt
-        t0 = truth.t[1]
-        check_memory(record_memory_estimate_gib(n), resources; stage = "labeling")
-        A, E, _ = tdi_to_aet(truth.X, truth.Y, truth.Z)
-        @info "truth stream" source n_samples = n sample_rate_hz = fs t0 max_abs_A =
-            maximum(abs, A)
-
-        # Window SNR of the truth: against the analytic TDI PSD, or as the
-        # detector sees it, conditioned by the observed record's whitening
-        window_size = settings.label_window_size
-        step = settings.label_step
+        source = resolvepath(something(h5_file, truth_csv))
         psd_model = settings.psd_model
-        tdi2 = settings.tdi2
-        observation_years = settings.observation_years
         record_source = if psd_model != "record"
             ""
         elseif record_file !== nothing
@@ -341,8 +317,42 @@ function label_truth_stream(
                 ),
             )
         end
-        isempty(record_source) ||
-            check_memory(3 * record_memory_estimate_gib(n), resources; stage = "labeling")
+
+        # Memory pre-flight on the sample count, before the truth is read:
+        # the extents of the HDF5 dataset, or the data rows of the CSV
+        n_samples = if h5_file === nothing
+            isfile(source) || throw(ArgumentError("truth CSV not found: $source"))
+            countlines(source) - 1
+        else
+            tdi_sample_count(source, settings.truth_group)
+        end
+        check_memory(record_memory_estimate_gib(n_samples), resources; stage = "labeling")
+        isempty(record_source) || check_memory(
+            3 * record_memory_estimate_gib(n_samples),
+            resources;
+            stage = "labeling",
+        )
+
+        # Truth stream and catalogue
+        truth, catalog = if h5_file === nothing
+            read_truth_csv(source), nothing
+        else
+            read_tdi(source; group = settings.truth_group),
+            read_catalog(source; group = settings.catalog_group)
+        end
+        n = length(truth.t)
+        fs = 1 / truth.dt
+        t0 = truth.t[1]
+        A, E, _ = tdi_to_aet(truth.X, truth.Y, truth.Z)
+        @info "truth stream" source n_samples = n sample_rate_hz = fs t0 max_abs_A =
+            maximum(abs, A)
+
+        # Window SNR of the truth: against the analytic TDI PSD, or as the
+        # detector sees it, conditioned by the observed record's whitening
+        window_size = settings.label_window_size
+        step = settings.label_step
+        tdi2 = settings.tdi2
+        observation_years = settings.observation_years
         @info "window SNR of the truth stream" window_size step psd_model tdi2 observation_years record_source
         starts, snr, snr_ae, psd_description =
             isempty(record_source) ? analytic_truth_snr(A, E, fs, settings, mode) :
@@ -385,13 +395,10 @@ function label_truth_stream(
         events_path = joinpath(out_dir, "$(prefix)_events.csv")
         spans_path = joinpath(out_dir, "$(prefix)_spans.csv")
         snapshot_path = joinpath(out_dir, "$(prefix)_labels.toml")
-        for out in (label_path, events_path, spans_path, snapshot_path)
-            abspath(out) == abspath(source) && throw(
-                ArgumentError(
-                    "output $out coincides with the input; choose another prefix.",
-                ),
-            )
-        end
+        check_outputs_distinct(
+            (label_path, events_path, spans_path, snapshot_path),
+            (source, isempty(record_source) ? nothing : record_source),
+        )
         write_csv(label_path, DataFrame(Label = labels, SNR = snr_column))
 
         events = DataFrame(
@@ -441,9 +448,9 @@ function label_truth_stream(
                     lower;
                     threshold = settings.label_snr_threshold,
                 )
-                # T carries no gravitational-wave signal of these sources below
-                # about 10 mHz on equal arms, and its noise would have to be
-                # measured: the onset of the three channels is that of A and E
+                # The response of T to these sources is strongly suppressed below
+                # about 10 mHz and its noise is not measured here: the onset of the
+                # three channels is that of A and E
                 mode == "AET" &&
                     (events.signal_start_index_aet = copy(events.signal_start_index_ae))
             end
@@ -498,7 +505,7 @@ function label_truth_stream(
                     (
                         mode == "AET" && settings.label_span == "fixed" ?
                         (
-                            "signal_onset_aet" => "set to the AE onset: T is signal-free below about 10 mHz on equal arms and its noise is not measured here",
+                            "signal_onset_aet" => "set to the AE onset: the response of T is strongly suppressed below about 10 mHz and its noise is not measured here",
                         ) : ()
                     )...,
                     "merger_snr_threshold" => settings.merger_snr_threshold,

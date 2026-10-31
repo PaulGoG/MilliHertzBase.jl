@@ -1,21 +1,109 @@
-# Telemetry generation stage: calibrated LISA
-# noise (instrument plus confusion), resolvable galactic binaries and EMRIs
-# scaled to a matched-filter SNR over the record, MBHB injections aligned on
-# the coalescence sample with point-wise labels and an event catalogue, and
-# the persisted products (HDF5 record, label CSV, catalogue CSV, snapshot
-# TOML). The random-draw order of every injector is fixed so that a seed
-# reproduces a record bit for bit.
+# Telemetry generation stage. LISA noise (instrument plus confusion) is
+# synthesised, resolvable Galactic binaries and EMRIs are added at a
+# matched-filter SNR over the record, and MBHBs are injected on their
+# coalescence sample with point-wise labels and an event catalogue; the
+# stage writes the HDF5 record, the label and catalogue CSVs and a
+# snapshot TOML. The random-draw order of every injector is fixed so that a
+# seed reproduces a record bit for bit.
 
 """
-    inject_galactic_binaries!(rng, strain, t, fs, n, snr_range, psd) -> strain
+    GB_FREQUENCY_STEP
 
-Add `n` monochromatic galactic binaries to `strain` in place. Each source
-draws a frequency on the grid 0.1 mHz – 10 mHz (step 10 μHz), a uniform
-phase, and a matched-filter SNR over the record uniform in `snr_range`
-(inclusive bounds, ``\\rho_\\min \\le \\rho_\\max``); the sinusoid is
-scaled with [`scale_to_snr`](@ref) against the one-sided PSD `psd(f)`.
-`t` [s] is the sample-time vector of the record at sampling frequency `fs`
-[Hz]. Draw order per source: frequency, phase, SNR.
+Grid step [Hz] of the frequencies of the Galactic binaries, 10 μHz.
+"""
+const GB_FREQUENCY_STEP = 1e-5
+
+"""
+    EMRI_FREQUENCY_STEP
+
+Grid step [Hz] of the start frequencies of the EMRIs, 0.5 mHz.
+"""
+const EMRI_FREQUENCY_STEP = 5e-4
+
+"""
+    EMRI_DRIFT_STEP
+
+Grid step [Hz s⁻¹] of the frequency drifts of the EMRIs, 0.1 nHz s⁻¹.
+"""
+const EMRI_DRIFT_STEP = 1e-10
+
+"""
+    check_injection_arguments(series; n = 0, snr_range = (1, 1), duration_sec = 1,
+                              min_samples = 0)
+
+Argument checks shared by the injectors: the vectors of the NamedTuple
+`series` (the record, its sample times, labels) of equal length and at
+least `min_samples` long, a non-negative number of sources `n`, an SNR
+range `(ρ_min, ρ_max)` with ``0 < \\rho_\\min \\le \\rho_\\max``, and a positive
+injection length `duration_sec` [s]. The defaults pass, so that an
+injector names only the checks that apply to it.
+"""
+function check_injection_arguments(
+    series::NamedTuple;
+    n::Integer = 0,
+    snr_range::Tuple{<:Real,<:Real} = (1, 1),
+    duration_sec::Real = 1,
+    min_samples::Integer = 0,
+)
+    lengths = map(length, values(series))
+    allequal(lengths) || throw(
+        DimensionMismatch(
+            "$(join(keys(series), ", ")) must have equal length; got " *
+            "$(join(lengths, ", ")).",
+        ),
+    )
+    first(lengths) >= min_samples ||
+        throw(ArgumentError("the record must hold at least $min_samples samples."))
+    n >= 0 || throw(ArgumentError("n = $n; the number of sources must be non-negative."))
+    ρ_min, ρ_max = snr_range
+    0 < ρ_min <= ρ_max ||
+        throw(ArgumentError("snr_range = $snr_range; expected 0 < ρ_min <= ρ_max."))
+    duration_sec > 0 ||
+        throw(ArgumentError("duration_sec = $duration_sec; must be positive."))
+    return nothing
+end
+
+"""
+    draw_mbhb_intrinsics(rng, settings, n_total, fs) -> NamedTuple
+
+The draws every MBHB injection opens with, in this order: the coalescence
+sample `k_c`, uniform over the fraction `coalescence_fraction_range` of a
+record of `n_total` samples; the detector-frame total mass [M⊙],
+log-uniform in `[mbhb_total_mass_min, mbhb_total_mass_max]`; the mass
+ratio, uniform in `[1, mbhb_mass_ratio_max]`. `settings` carries these
+keys of [`generation_settings`](@ref). Returns `(; k_c, t_c, total_mass,
+mass_ratio)` with the coalescence time `t_c` [s] at the sampling frequency
+`fs` [Hz].
+"""
+function draw_mbhb_intrinsics(
+    rng::AbstractRNG,
+    settings::NamedTuple,
+    n_total::Integer,
+    fs::Real,
+)
+    lo, hi = settings.coalescence_fraction_range
+    k_c = rand(rng, round(Int, lo*n_total):round(Int, hi*n_total))
+    k_c = clamp(k_c, 1, n_total)
+    t_c = (k_c - 1) / fs
+    log_mass_min = log10(settings.mbhb_total_mass_min)
+    log_mass_max = log10(settings.mbhb_total_mass_max)
+    total_mass = 10.0^(log_mass_min + rand(rng) * (log_mass_max - log_mass_min))
+    mass_ratio = 1 + rand(rng) * (settings.mbhb_mass_ratio_max - 1)
+    return (k_c = k_c, t_c = t_c, total_mass = total_mass, mass_ratio = mass_ratio)
+end
+
+"""
+    inject_galactic_binaries!(rng, strain, t, fs, n, snr_range, psd; frequency_range)
+        -> strain
+
+Add `n` monochromatic Galactic binaries to `strain` in place. Each source
+draws a frequency on the grid of step [`GB_FREQUENCY_STEP`](@ref) over
+`frequency_range` [Hz], a uniform phase, and a matched-filter SNR over the
+record uniform in `snr_range` (inclusive bounds,
+``\\rho_\\min \\le \\rho_\\max``); the sinusoid is scaled with
+[`scale_to_snr`](@ref) against the one-sided PSD `psd(f)`. `t` [s] is the
+sample-time vector of the record at sampling frequency `fs` [Hz]. Draw
+order per source: frequency, phase, SNR.
 """
 function inject_galactic_binaries!(
     rng::AbstractRNG,
@@ -24,17 +112,14 @@ function inject_galactic_binaries!(
     fs::Real,
     n::Integer,
     snr_range::Tuple{<:Real,<:Real},
-    psd,
+    psd;
+    frequency_range::Tuple{<:Real,<:Real},
 )
-    length(t) == length(strain) || throw(
-        DimensionMismatch("t has $(length(t)) samples but strain has $(length(strain))."),
-    )
-    n >= 0 || throw(ArgumentError("n = $n; the number of sources must be non-negative."))
+    check_injection_arguments((t = t, strain = strain); n = n, snr_range = snr_range)
     ρ_min, ρ_max = snr_range
-    0 < ρ_min <= ρ_max ||
-        throw(ArgumentError("snr_range = $snr_range; expected 0 < ρ_min <= ρ_max."))
+    f_lo, f_hi = frequency_range
     for _ in 1:n
-        f = rand(rng, 0.0001:0.00001:0.01)   # 0.1 mHz to 10 mHz
+        f = rand(rng, f_lo:GB_FREQUENCY_STEP:f_hi)
         φ = rand(rng) * 2π
         gb = cos.(2π * f .* t .+ φ)
         ρ = ρ_min + rand(rng) * (ρ_max - ρ_min)
@@ -44,13 +129,15 @@ function inject_galactic_binaries!(
 end
 
 """
-    inject_emris!(rng, strain, t, fs, n, snr_range, psd) -> strain
+    inject_emris!(rng, strain, t, fs, n, snr_range, psd; frequency_range, drift_range)
+        -> strain
 
 Add `n` extreme-mass-ratio inspirals to `strain` in place. Each source is a
-linearly chirping fundamental — start frequency on the grid 1 mHz – 5 mHz
-(step 0.5 mHz), drift on the grid 1 – 10 nHz s⁻¹ (step 0.1 nHz s⁻¹) — with
-its second and third harmonics at amplitudes 1/2 and 1/3, phased by the
-cumulative sum of the instantaneous frequency, and scaled with
+linearly chirping fundamental, with a start frequency on the grid of step
+[`EMRI_FREQUENCY_STEP`](@ref) over `frequency_range` [Hz] and a drift on
+the grid of step [`EMRI_DRIFT_STEP`](@ref) over `drift_range` [Hz s⁻¹],
+with its second and third harmonics at amplitudes 1/2 and 1/3, phased by
+the cumulative sum of the instantaneous frequency, and scaled with
 [`scale_to_snr`](@ref) to a matched-filter SNR over the record uniform in
 `snr_range` against the one-sided PSD `psd(f)`. `t` [s] is the sample-time
 vector of the record at sampling frequency `fs` [Hz]. Draw order per
@@ -63,19 +150,16 @@ function inject_emris!(
     fs::Real,
     n::Integer,
     snr_range::Tuple{<:Real,<:Real},
-    psd,
+    psd;
+    frequency_range::Tuple{<:Real,<:Real},
+    drift_range::Tuple{<:Real,<:Real},
 )
-    length(t) == length(strain) || throw(
-        DimensionMismatch("t has $(length(t)) samples but strain has $(length(strain))."),
-    )
-    n >= 0 || throw(ArgumentError("n = $n; the number of sources must be non-negative."))
+    check_injection_arguments((t = t, strain = strain); n = n, snr_range = snr_range)
     ρ_min, ρ_max = snr_range
-    0 < ρ_min <= ρ_max ||
-        throw(ArgumentError("snr_range = $snr_range; expected 0 < ρ_min <= ρ_max."))
     n_total = length(strain)
     for _ in 1:n
-        f0 = rand(rng, 0.001:0.0005:0.005)
-        dfdt = rand(rng, 1e-9:1e-10:1e-8)
+        f0 = rand(rng, first(frequency_range):EMRI_FREQUENCY_STEP:last(frequency_range))
+        dfdt = rand(rng, first(drift_range):EMRI_DRIFT_STEP:last(drift_range))
         sig = zeros(n_total)
         for harmonic in (1, 2, 3)
             f_t = harmonic .* (f0 .+ dfdt .* t)
@@ -124,10 +208,9 @@ end
 Inject one massive-black-hole binary into `strain` in place, mark its
 positive-label span in `labels` (`1`) and `snrs` (the injected SNR), and
 append its row to `catalog` (schema of [`event_catalog`](@ref)). The
-coalescence sample is uniform over the central 80 % of the record, the
-detector-frame total mass log-uniform in
-`[mbhb_total_mass_min, mbhb_total_mass_max]`, and the mass ratio uniform in
-`[1, mbhb_mass_ratio_max]`; the IMRPhenomA waveform of `duration_sec` [s]
+coalescence sample, the detector-frame total mass and the mass ratio are
+those of [`draw_mbhb_intrinsics`](@ref); the IMRPhenomA waveform of
+`duration_sec` [s]
 ([`phenoma_waveform`](@ref)) is placed with [`place_signal!`](@ref),
 truncated to the record, and the covered samples are scaled with
 [`scale_to_snr`](@ref) to a matched-filter SNR uniform in
@@ -138,7 +221,8 @@ stride `label_step` (an empty span when no window reaches the threshold);
 `"injection"` takes the covered samples; `"fixed"` takes
 `label_before_sec` before and `label_after_sec` after the coalescence.
 `settings` is the NamedTuple of [`generation_settings`](@ref) carrying these
-keys and `nyquist_taper`; `psd(f)` is the one-sided noise PSD [Hz⁻¹].
+keys, those of [`draw_mbhb_intrinsics`](@ref) and `nyquist_taper`;
+`psd(f)` is the one-sided noise PSD [Hz⁻¹].
 
 Returns `true` when the event was injected and catalogued, `false` when the
 placed waveform covers no sample of the record (no SNR is drawn then). Draw
@@ -156,24 +240,13 @@ function inject_mbhb!(
     settings::NamedTuple,
     psd,
 )
-    n_total = length(strain)
-    (length(labels) == n_total && length(snrs) == n_total) || throw(
-        DimensionMismatch(
-            "strain, labels, and snrs must have equal length; got " *
-            "$(n_total), $(length(labels)), $(length(snrs)).",
-        ),
+    check_injection_arguments(
+        (strain = strain, labels = labels, snrs = snrs);
+        duration_sec = duration_sec,
+        min_samples = 2,
     )
-    n_total >= 2 || throw(ArgumentError("the record must hold at least 2 samples."))
-    duration_sec > 0 ||
-        throw(ArgumentError("duration_sec = $duration_sec; must be positive."))
-
-    k_c = rand(rng, round(Int, 0.1*n_total):round(Int, 0.9*n_total))
-    k_c = clamp(k_c, 1, n_total)
-    t_c = (k_c - 1) / fs
-    log_mass_min = log10(settings.mbhb_total_mass_min)
-    log_mass_max = log10(settings.mbhb_total_mass_max)
-    total_mass = 10.0^(log_mass_min + rand(rng) * (log_mass_max - log_mass_min))
-    mass_ratio = 1 + rand(rng) * (settings.mbhb_mass_ratio_max - 1)
+    n_total = length(strain)
+    k_c, t_c, total_mass, mass_ratio = draw_mbhb_intrinsics(rng, settings, n_total, fs)
     signal, merger_index, pars = phenoma_waveform(
         fs,
         duration_sec;
@@ -353,7 +426,8 @@ function add_at_network_snr!(
 end
 
 """
-    inject_galactic_binaries!(rng, channels, t, fs, n, snr_range, psd, response) -> channels
+    inject_galactic_binaries!(rng, channels, t, fs, n, snr_range, psd, response;
+                              frequency_range) -> channels
 
 Constellation-response method: each source draws its frequency, phase and
 network SNR as the single-strain method does, then the extrinsic
@@ -369,20 +443,19 @@ function inject_galactic_binaries!(
     n::Integer,
     snr_range::Tuple{<:Real,<:Real},
     psd,
-    response::AbstractDetectorResponse,
+    response::AbstractDetectorResponse;
+    frequency_range::Tuple{<:Real,<:Real},
 )
-    n_total = length(t)
-    all(length(c) == n_total for c in channels) || throw(
-        DimensionMismatch(
-            "t has $n_total samples but the channels have $(length.(channels)).",
-        ),
+    check_injection_arguments(
+        (t = t, A = channels[1], E = channels[2]);
+        n = n,
+        snr_range = snr_range,
     )
-    n >= 0 || throw(ArgumentError("n = $n; the number of sources must be non-negative."))
+    n_total = length(t)
     ρ_min, ρ_max = snr_range
-    0 < ρ_min <= ρ_max ||
-        throw(ArgumentError("snr_range = $snr_range; expected 0 < ρ_min <= ρ_max."))
+    f_lo, f_hi = frequency_range
     for _ in 1:n
-        f = rand(rng, 0.0001:0.00001:0.01)   # 0.1 mHz to 10 mHz
+        f = rand(rng, f_lo:GB_FREQUENCY_STEP:f_hi)
         φ = rand(rng) * 2π
         ρ = ρ_min + rand(rng) * (ρ_max - ρ_min)
         source = draw_extrinsic(rng)
@@ -403,7 +476,8 @@ function inject_galactic_binaries!(
 end
 
 """
-    inject_emris!(rng, channels, t, fs, n, snr_range, psd, response) -> channels
+    inject_emris!(rng, channels, t, fs, n, snr_range, psd, response; frequency_range,
+                  drift_range) -> channels
 
 Constellation-response method: each source draws its start frequency,
 drift and network SNR as the single-strain method does, then the extrinsic
@@ -420,21 +494,20 @@ function inject_emris!(
     n::Integer,
     snr_range::Tuple{<:Real,<:Real},
     psd,
-    response::AbstractDetectorResponse,
+    response::AbstractDetectorResponse;
+    frequency_range::Tuple{<:Real,<:Real},
+    drift_range::Tuple{<:Real,<:Real},
 )
-    n_total = length(t)
-    all(length(c) == n_total for c in channels) || throw(
-        DimensionMismatch(
-            "t has $n_total samples but the channels have $(length.(channels)).",
-        ),
+    check_injection_arguments(
+        (t = t, A = channels[1], E = channels[2]);
+        n = n,
+        snr_range = snr_range,
     )
-    n >= 0 || throw(ArgumentError("n = $n; the number of sources must be non-negative."))
+    n_total = length(t)
     ρ_min, ρ_max = snr_range
-    0 < ρ_min <= ρ_max ||
-        throw(ArgumentError("snr_range = $snr_range; expected 0 < ρ_min <= ρ_max."))
     for _ in 1:n
-        f0 = rand(rng, 0.001:0.0005:0.005)
-        dfdt = rand(rng, 1e-9:1e-10:1e-8)
+        f0 = rand(rng, first(frequency_range):EMRI_FREQUENCY_STEP:last(frequency_range))
+        dfdt = rand(rng, first(drift_range):EMRI_DRIFT_STEP:last(drift_range))
         ρ = ρ_min + rand(rng) * (ρ_max - ρ_min)
         source = draw_extrinsic(rng)
         frame =
@@ -467,7 +540,8 @@ end
 
 Constellation-response method of [`inject_mbhb!`](@ref): the coalescence
 sample, total mass and mass ratio are drawn as in the single-strain
-method, then the luminosity distance log-uniformly in
+method ([`draw_mbhb_intrinsics`](@ref)), then the luminosity distance
+log-uniformly in
 `[mbhb_distance_min_gpc, mbhb_distance_max_gpc]` and the extrinsic
 parameters of [`draw_extrinsic`](@ref). The IMRPhenomA spectrum
 ([`phenoma_spectrum`](@ref)) at the physical amplitude of that distance
@@ -496,28 +570,13 @@ function inject_mbhb!(
     psd,
     response::AbstractDetectorResponse,
 )
-    n_total = length(channels[1])
-    (
-        length(channels[2]) == n_total &&
-        length(labels) == n_total &&
-        length(snrs) == n_total
-    ) || throw(
-        DimensionMismatch(
-            "the channels, labels, and snrs must have equal length; got " *
-            "$(length.(channels)), $(length(labels)), $(length(snrs)).",
-        ),
+    check_injection_arguments(
+        (A = channels[1], E = channels[2], labels = labels, snrs = snrs);
+        duration_sec = duration_sec,
+        min_samples = 2,
     )
-    n_total >= 2 || throw(ArgumentError("the record must hold at least 2 samples."))
-    duration_sec > 0 ||
-        throw(ArgumentError("duration_sec = $duration_sec; must be positive."))
-
-    k_c = rand(rng, round(Int, 0.1*n_total):round(Int, 0.9*n_total))
-    k_c = clamp(k_c, 1, n_total)
-    t_c = (k_c - 1) / fs
-    log_mass_min = log10(settings.mbhb_total_mass_min)
-    log_mass_max = log10(settings.mbhb_total_mass_max)
-    total_mass = 10.0^(log_mass_min + rand(rng) * (log_mass_max - log_mass_min))
-    mass_ratio = 1 + rand(rng) * (settings.mbhb_mass_ratio_max - 1)
+    n_total = length(channels[1])
+    k_c, t_c, total_mass, mass_ratio = draw_mbhb_intrinsics(rng, settings, n_total, fs)
     log_d_min = log10(settings.mbhb_distance_min_gpc)
     log_d_max = log10(settings.mbhb_distance_max_gpc)
     distance_gpc = 10.0^(log_d_min + rand(rng) * (log_d_max - log_d_min))
@@ -603,121 +662,149 @@ end
     simulate_record(rng, settings, t, psd, response) -> NamedTuple
 
 Noise and sources of one record on the sample times `t` [s] for the
-sensitivity `psd(f)`: with [`SkyAveragedResponse`](@ref) one strain
-against the sensitivity itself;
-with a constellation response two channels, A and E, each of independent
-noise against [`channel_noise_psd`](@ref), the background sources and the
-MBHB injections projected by the response. Returns `(; channels, labels,
+sensitivity `psd(f)` and the `[generation]` settings `settings`
+([`generation_settings`](@ref)): with [`SkyAveragedResponse`](@ref) one
+strain against the sensitivity itself; with a constellation response two
+channels, A and E, each of independent noise against
+[`channel_noise_psd`](@ref), the background sources and the MBHB
+injections projected by the response. The injected waveforms are at most
+`mbhb_duration_days` long and at most the fraction
+`mbhb_duration_max_fraction` of the record. Returns `(; channels, labels,
 snrs, catalog)` with `channels` a NamedTuple of record-length vectors.
 """
 function simulate_record(
     rng::AbstractRNG,
-    g::NamedTuple,
+    settings::NamedTuple,
     t::AbstractVector{<:Real},
     psd,
     ::SkyAveragedResponse,
 )
     n_total = length(t)
-    T_record = n_total / g.fs
+    T_record = n_total / settings.fs
     # Instrument plus confusion noise at physical strain amplitude.
     strain = @timeit TIMER "noise" synthesize_noise(
         rng,
         n_total,
-        g.fs;
+        settings.fs;
         psd = psd,
-        f_min = g.noise_f_min_hz,
+        f_min = settings.noise_f_min_hz,
     )
     # Resolvable sources above the confusion fit, scaled to a
     # matched-filter SNR over the simulated record.
-    @info "injecting resolvable background sources" n_gbs = g.n_gbs n_emris = g.n_emris
+    @info "injecting resolvable background sources" n_gbs = settings.n_gbs n_emris =
+        settings.n_emris
     @timeit TIMER "galactic binaries" inject_galactic_binaries!(
         rng,
         strain,
         t,
-        g.fs,
-        g.n_gbs,
-        (g.gb_snr_min, g.gb_snr_max),
-        psd,
+        settings.fs,
+        settings.n_gbs,
+        (settings.gb_snr_min, settings.gb_snr_max),
+        psd;
+        frequency_range = settings.gb_frequency_range_hz,
     )
     @timeit TIMER "EMRIs" inject_emris!(
         rng,
         strain,
         t,
-        g.fs,
-        g.n_emris,
-        (g.emri_snr_min, g.emri_snr_max),
-        psd,
+        settings.fs,
+        settings.n_emris,
+        (settings.emri_snr_min, settings.emri_snr_max),
+        psd;
+        frequency_range = settings.emri_frequency_range_hz,
+        drift_range = settings.emri_drift_range_hz_per_s,
     )
     # MBHB injections aligned on the coalescence sample, with labels and
     # an event catalogue.
-    @info "injecting massive black hole binaries" n_mbhb = g.n_mbhb label_span =
-        g.label_span
+    @info "injecting massive black hole binaries" n_mbhb = settings.n_mbhb label_span =
+        settings.label_span
     labels = zeros(Int32, n_total)
     snrs = zeros(Float32, n_total)
     catalog = event_catalog()
-    duration_sec = min(g.mbhb_duration_days * 86400, 0.4 * T_record)
-    @timeit TIMER "MBHBs" for i in 1:g.n_mbhb
-        inject_mbhb!(rng, strain, labels, snrs, catalog, i, g.fs, duration_sec, g, psd)
+    duration_sec = min(
+        settings.mbhb_duration_days * 86400,
+        settings.mbhb_duration_max_fraction * T_record,
+    )
+    @timeit TIMER "MBHBs" for i in 1:settings.n_mbhb
+        inject_mbhb!(
+            rng,
+            strain,
+            labels,
+            snrs,
+            catalog,
+            i,
+            settings.fs,
+            duration_sec,
+            settings,
+            psd,
+        )
     end
     return (channels = (A = strain,), labels = labels, snrs = snrs, catalog = catalog)
 end
 
 function simulate_record(
     rng::AbstractRNG,
-    g::NamedTuple,
+    settings::NamedTuple,
     t::AbstractVector{<:Real},
     psd,
     response::AbstractDetectorResponse,
 )
     n_total = length(t)
-    T_record = n_total / g.fs
+    T_record = n_total / settings.fs
     psd_channel = channel_noise_psd(response, psd)
     # Independent noise per channel at the Michelson-channel level.
     A = @timeit TIMER "noise" synthesize_noise(
         rng,
         n_total,
-        g.fs;
+        settings.fs;
         psd = psd_channel,
-        f_min = g.noise_f_min_hz,
+        f_min = settings.noise_f_min_hz,
     )
     E = @timeit TIMER "noise" synthesize_noise(
         rng,
         n_total,
-        g.fs;
+        settings.fs;
         psd = psd_channel,
-        f_min = g.noise_f_min_hz,
+        f_min = settings.noise_f_min_hz,
     )
     channels = (A, E)
-    @info "injecting resolvable background sources through the response" n_gbs = g.n_gbs n_emris =
-        g.n_emris
+    @info "injecting resolvable background sources through the response" n_gbs =
+        settings.n_gbs n_emris = settings.n_emris
     @timeit TIMER "galactic binaries" inject_galactic_binaries!(
         rng,
         channels,
         t,
-        g.fs,
-        g.n_gbs,
-        (g.gb_snr_min, g.gb_snr_max),
+        settings.fs,
+        settings.n_gbs,
+        (settings.gb_snr_min, settings.gb_snr_max),
         psd_channel,
-        response,
+        response;
+        frequency_range = settings.gb_frequency_range_hz,
     )
     @timeit TIMER "EMRIs" inject_emris!(
         rng,
         channels,
         t,
-        g.fs,
-        g.n_emris,
-        (g.emri_snr_min, g.emri_snr_max),
+        settings.fs,
+        settings.n_emris,
+        (settings.emri_snr_min, settings.emri_snr_max),
         psd_channel,
-        response,
+        response;
+        frequency_range = settings.emri_frequency_range_hz,
+        drift_range = settings.emri_drift_range_hz_per_s,
     )
-    @info "injecting massive black hole binaries at physical amplitude" n_mbhb = g.n_mbhb distance_range_gpc =
-        (g.mbhb_distance_min_gpc, g.mbhb_distance_max_gpc) label_span = g.label_span label_channel =
-        g.label_channel
+    @info "injecting massive black hole binaries at physical amplitude" n_mbhb =
+        settings.n_mbhb distance_range_gpc =
+        (settings.mbhb_distance_min_gpc, settings.mbhb_distance_max_gpc) label_span =
+        settings.label_span label_channel = settings.label_channel
     labels = zeros(Int32, n_total)
     snrs = zeros(Float32, n_total)
     catalog = channel_catalog()
-    duration_sec = min(g.mbhb_duration_days * 86400, 0.4 * T_record)
-    @timeit TIMER "MBHBs" for i in 1:g.n_mbhb
+    duration_sec = min(
+        settings.mbhb_duration_days * 86400,
+        settings.mbhb_duration_max_fraction * T_record,
+    )
+    @timeit TIMER "MBHBs" for i in 1:settings.n_mbhb
         inject_mbhb!(
             rng,
             channels,
@@ -725,9 +812,9 @@ function simulate_record(
             snrs,
             catalog,
             i,
-            g.fs,
+            settings.fs,
             duration_sec,
-            g,
+            settings,
             psd_channel,
             response,
         )
@@ -739,11 +826,15 @@ end
     write_record(h5_file, t, channels)
 
 HDF5 record of the simulated channels under `obs/tdi`, laid out so that
-the pre-processor's TDI recombination round-trips them: one channel `A`
-is written as `X ≡ 0`, `Z = √2 A`; two channels `A`, `E` as
-``X = -A/\\sqrt{2} + E/\\sqrt{6}``, ``Y = -2E/\\sqrt{6}``,
-``Z = A/\\sqrt{2} + E/\\sqrt{6}``, whose null combination `T` vanishes
-identically.
+the pre-processor's TDI recombination ([`tdi_to_aet`](@ref)) round-trips
+them: one channel `A` is written as ``X = -A/\\sqrt{2}``, ``Y = 0``,
+``Z = A/\\sqrt{2}``, which recombine to that A and to vanishing E and T;
+two channels `A`, `E` as ``X = -A/\\sqrt{2} + E/\\sqrt{6}``,
+``Y = -2E/\\sqrt{6}``, ``Z = A/\\sqrt{2} + E/\\sqrt{6}``, whose null
+combination `T` vanishes identically. The attribute `channels` of
+`obs/tdi` records the simulated channel set (`"A"` or `"AE"`), and the
+stages refuse a wider channel mode on the record
+([`check_recorded_channels`](@ref)).
 """
 function write_record(
     h5_file::AbstractString,
@@ -755,14 +846,19 @@ function write_record(
         g_tdi = HDF5.create_group(g_obs, "tdi")
         g_tdi["t"] = collect(t)
         if length(channels) == 1
-            g_tdi["X"] = zeros(length(t))
-            g_tdi["Z"] = channels.A .* sqrt(2.0)
+            # Z = √2 A / 2 and X = -Z: Z - X is the rounded √2 A with no
+            # further rounding, so A recombines to (√2 A)/√2 and E, T to 0
+            Z = channels.A .* sqrt(2.0) ./ 2
+            g_tdi["X"] = -Z
+            g_tdi["Y"] = zeros(length(t))
+            g_tdi["Z"] = Z
         else
             A, E = channels.A, channels.E
             g_tdi["X"] = -A ./ sqrt(2.0) .+ E ./ sqrt(6.0)
             g_tdi["Y"] = -2 .* E ./ sqrt(6.0)
             g_tdi["Z"] = A ./ sqrt(2.0) .+ E ./ sqrt(6.0)
         end
+        attributes(g_tdi)["channels"] = join(String.(keys(channels)))
     end
     return h5_file
 end
@@ -773,7 +869,8 @@ end
 Generation stage of the pipeline. Every parameter comes from the
 `[generation]` section of `config` ([`generation_settings`](@ref)); `output`
 overrides the configured HDF5 path. The stage synthesises Gaussian noise of
-the Robson–Cornish–Liu (2019) instrument-plus-confusion PSD
+the channel noise PSD of the response ([`channel_noise_psd`](@ref)) for
+the Robson–Cornish–Liu (2019) instrument-plus-confusion sensitivity
 ([`synthesize_noise`](@ref)), adds the resolvable background
 ([`inject_galactic_binaries!`](@ref), [`inject_emris!`](@ref)), injects
 the MBHB events with their labels and catalogue ([`inject_mbhb!`](@ref)) —
@@ -781,19 +878,24 @@ through the detector response of `[generation] response`
 ([`simulate_record`](@ref)) — and persists the products beside `output`:
 
 - `<stem>.h5` — group `obs/tdi` with datasets `t` [s] and the TDI
-  combinations of [`write_record`](@ref): `X ≡ 0`, `Z = √2 h` for the
-  sky-averaged strain `h`, or `X`, `Y`, `Z` recombining to the `A` and `E`
-  channels of the constellation response (`response = "lisa"`, through the
-  CurvatureDistinguishability extension);
+  combinations of [`write_record`](@ref): `X = -h/√2`, `Y = 0`,
+  `Z = h/√2` for the sky-averaged strain `h`, which recombine to `A = h`
+  and vanishing `E` and `T`, or `X`, `Y`, `Z` recombining to the `A` and
+  `E` channels of the constellation response (`response = "lisa"`,
+  through the CurvatureDistinguishability extension); the attribute
+  `channels` of `obs/tdi` (`"A"` or `"AE"`) records the simulated channel
+  set, and the pre-processing, export and replay refuse a wider mode;
 - `<stem>_labels.csv` — point-wise `Label` (0/1) and `SNR` columns;
-- `<stem>_events.csv` — the event catalogue ([`event_catalog`](@ref));
+- `<stem>_events.csv` — the event catalogue ([`event_catalog`](@ref), or
+  [`channel_catalog`](@ref) under the constellation response);
 - `<stem>_generation.toml` — the `[generation]` snapshot with `run_id` and
   `n_events_injected`, plus the hardware and git provenance added by
   [`write_toml`](@ref).
 
 Existing files are backed up DrWatson-style ([`backup_existing!`](@ref)).
-Before allocation the memory demand of eight record-length arrays is
-checked against the `[resources]` thresholds ([`check_memory`](@ref)).
+Before allocation the memory demand of eight (one channel) or fourteen
+(two channels) record-length arrays is checked against the `[resources]`
+thresholds ([`check_memory`](@ref)).
 The whole stage is timed under `TIMER` as `"generation"`.
 
 Returns `(; run_id, h5_file, label_file, catalog_file, snapshot_file,
@@ -861,7 +963,10 @@ function generate_telemetry(
             write_record(h5_file, t, channels)
             write_csv(label_file, DataFrame(Label = labels, SNR = snrs))
             write_csv(catalog_file, catalog)
-            snapshot = Dict{String,Any}(String(k) => getfield(g, k) for k in keys(g))
+            # Ranges as arrays, the TOML form of the configuration
+            snapshot = Dict{String,Any}(
+                String(k) => (v isa Tuple ? collect(v) : v) for (k, v) in pairs(g)
+            )
             snapshot["output"] = provenance_path(h5_file)
             snapshot["run_id"] = run_id
             snapshot["n_events_injected"] = nrow(catalog)

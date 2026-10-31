@@ -1,14 +1,9 @@
-# test/export_payload_tests.jl — payload-export stage: the A-channel payload
-# CSV, the scenario fragment with its markers and label spans, the settings
-# reader, and the batch-geometry guard; included by runtests.jl.
+# Payload-export stage: the A- and AE-channel payload CSV, the scenario
+# fragment with its markers and label spans, the settings reader, and the
+# batch-geometry guard; included by runtests.jl.
 
 @testset "Telemetry payload export" begin
     @testset "Settings and batch geometry" begin
-        defaults = telemetry_settings(Dict{String,Any}())
-        @test defaults.segment_duration_sec == 50.0
-        @test defaults.batch_size == 10
-        @test defaults.start_sim_time == DateTime(2035, 1, 1)
-        @test defaults.output_prefix == "telemetry"
         bad(key, value) = Dict{String,Any}("telemetry" => Dict{String,Any}(key => value))
         @test_throws ArgumentError telemetry_settings(
             bad("start_sim_time", "mission start"),
@@ -17,9 +12,11 @@
         @test_throws ArgumentError telemetry_settings(bad("segment_duration_sec", 0))
         @test samples_per_batch(0.2, 50, 10) == 100
         @test samples_per_batch(4.0, 0.5, 4) == 8
-        # A segment must hold a whole number of samples
-        @test_throws ArgumentError samples_per_batch(0.2, 52, 10)
-        @test_throws ArgumentError samples_per_batch(0.2, 1, 10)
+        # A batch must hold a whole number of samples, the rule of the
+        # producer; its segments need not
+        @test samples_per_batch(0.2, 52, 10) == 104
+        @test_throws ArgumentError samples_per_batch(0.2, 50.5, 1)
+        @test_throws ArgumentError samples_per_batch(0.2, 50, 0)
     end
 
     @testset "Catalog schemas" begin
@@ -42,10 +39,11 @@
         n = 3000
         noise = synthesize_noise(StableRNG(2035), n, fs; psd = lisa_noise_psd)
         t = collect((0:(n-1)) ./ fs)
-        X = zeros(n)
-        Z = sqrt(2.0) .* noise
+        Z = noise .* sqrt(2.0) ./ 2
+        X = -Z
         h5 = joinpath(dir, "record.h5")
-        # The simulator's group layout
+        # The group layout of the simulator (X = -A/√2, Y = 0, Z = A/√2),
+        # without its record of the channel set
         HDF5.h5open(h5, "w") do file
             g_obs = HDF5.create_group(file, "obs")
             g_tdi = HDF5.create_group(g_obs, "tdi")
@@ -203,7 +201,8 @@
                 catalog = catalog_path,
             )
             fractional = deepcopy(config)
-            fractional["telemetry"]["segment_duration_sec"] = 52
+            fractional["telemetry"]["segment_duration_sec"] = 50.5
+            fractional["telemetry"]["batch_size"] = 1
             @test_throws ArgumentError export_telemetry_payload(fractional)
             # A coalescence outside the record means the catalogue is not this record's
             foreign = joinpath(dir, "foreign_events.csv")
