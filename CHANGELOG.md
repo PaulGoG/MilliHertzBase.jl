@@ -7,9 +7,9 @@ follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
-- The test environment pins DeepSpaceTelemetry 3.1.2 (3.1.1 stamps installed
+- The test environment pins DeepSpaceTelemetry 3.2.0 (3.1.1 stamps installed
   copies clean again, 3.1.0 having left the tracked `data/` root out of its
-  identity hash; 3.1.2 changes documentation only); the suite asserts
+  identity hash; 3.2.0 adds reader accessors); the suite asserts
   `git_dirty == false` once more. The CurvatureDistinguishability pin names
   the commit of v2.1.1 rather than its tag object.
 
