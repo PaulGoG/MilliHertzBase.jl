@@ -76,16 +76,16 @@ built from `main` at
 ## Installation
 
 The package requires Julia 1.13 or later and is not registered; its current
-release is 0.2.0 (tag `v0.2.0`, 31 October 2026). It depends on
-StreamingInference.jl 0.2.0, unregistered too, at the commit recorded
+release is 0.2.1 (tag `v0.2.1`, 4 November 2026). It depends on
+StreamingInference.jl 0.2.1, unregistered too, at the commit recorded
 under `[sources]` in `Project.toml`. Most uses, the examples below among
 them, also load StreamingInference directly, so an environment adds it
 first, at its release tag, and MilliHertzBase after it:
 
 ```julia
 using Pkg
-Pkg.add(url = "https://github.com/PaulGoG/StreamingInference.jl", rev = "v0.2.0")
-Pkg.add(url = "https://github.com/PaulGoG/MilliHertzBase.jl", rev = "v0.2.0")  # the release
+Pkg.add(url = "https://github.com/PaulGoG/StreamingInference.jl", rev = "v0.2.1")
+Pkg.add(url = "https://github.com/PaulGoG/MilliHertzBase.jl", rev = "v0.2.1")  # the release
 Pkg.add(url = "https://github.com/PaulGoG/MilliHertzBase.jl")                  # main
 ```
 
@@ -271,7 +271,7 @@ MilliHertzBase.jl/
 @software{Gogita_MilliHertzBase_jl,
   author  = {Gogîță, Paul-Adrian},
   title   = {{MilliHertzBase.jl}},
-  version = {0.2.0},
+  version = {0.2.1},
   url     = {https://github.com/PaulGoG/MilliHertzBase.jl},
   year    = {2026}
 }

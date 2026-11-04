@@ -6,7 +6,11 @@ follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.1] — 2026-11-04
+
 ### Changed
+- StreamingInference 0.2.1 (the producer extension on the accessors of
+  DeepSpaceTelemetryReader 3.2) in every environment.
 - The test environment pins DeepSpaceTelemetry 3.2.0 (3.1.1 stamps installed
   copies clean again, 3.1.0 having left the tracked `data/` root out of its
   identity hash; 3.2.0 adds reader accessors); the suite asserts

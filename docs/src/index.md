@@ -27,15 +27,15 @@ along the arms, in which the laser frequency noise cancels.
 ## Installation
 
 The package requires Julia 1.13 or later and is not registered; its current
-release is 0.2.0 (tag `v0.2.0`, 31 October 2026). An environment adds
+release is 0.2.1 (tag `v0.2.1`, 4 November 2026). An environment adds
 StreamingInference.jl by URL at its release tag (the commit recorded under
 `[sources]` in `Project.toml`), then this package at its tag or following
 `main`:
 
 ```julia
 using Pkg
-Pkg.add(url = "https://github.com/PaulGoG/StreamingInference.jl", rev = "v0.2.0")
-Pkg.add(url = "https://github.com/PaulGoG/MilliHertzBase.jl", rev = "v0.2.0")  # the release
+Pkg.add(url = "https://github.com/PaulGoG/StreamingInference.jl", rev = "v0.2.1")
+Pkg.add(url = "https://github.com/PaulGoG/MilliHertzBase.jl", rev = "v0.2.1")  # the release
 Pkg.add(url = "https://github.com/PaulGoG/MilliHertzBase.jl")                  # main
 ```
 
