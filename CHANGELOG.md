@@ -6,6 +6,9 @@ follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- StreamingInference 0.2.2 in every environment.
+
 ## [0.2.1] — 2026-11-04
 
 ### Changed
